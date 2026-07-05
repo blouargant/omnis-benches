@@ -68,13 +68,15 @@ Not auto-installed:
 - **go** — to build the upstream harness.
 - **omnis-server** on PATH (or `OMNIS_SERVER_BIN=/path/to/omnis-server`).
 - **model credentials in the environment** — whatever your omnis `models.json`
-  reads (e.g. `OPENAI_BASE_URL` / `OPENAI_API_KEY`). `source` your omnis `.env`
-  first.
+  reads (e.g. `OPENAI_BASE_URL` / `OPENAI_API_KEY`). Put them in the project-root
+  **`omnis-benches/.env`** (gitignored); `run.sh` sources it automatically. (Or
+  `source` them yourself before running — e.g. your omnis `.env`.)
 
 ## Run
 
 ```bash
-source /path/to/omnis/.env          # model credentials
+# model credentials: put OPENAI_BASE_URL / OPENAI_API_KEY in omnis-benches/.env
+# (gitignored) — run.sh sources it automatically. No manual `source` needed.
 ./run.sh                            # all tasks
 TASK_PATTERN='fix' ./run.sh         # a subset (regex: 'fix', 'pod', 'scale', …)
 ```

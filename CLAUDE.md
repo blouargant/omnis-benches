@@ -17,7 +17,14 @@ Guidance for Claude Code (claude.ai/code) working in this repo. This is the
   code. Do not add a Go-module dependency on omnis.
 - **Model credentials come from the environment** (whatever the omnis
   `models.json` reads, e.g. `OPENAI_BASE_URL` / `OPENAI_API_KEY`). Tools never
-  hold secrets; `source ../omnis/.env` before running.
+  hold secrets. **Single mechanism — a project-root `.env`:** put those vars in
+  `omnis-benches/.env` (gitignored; never commit it). `k8s-ai-bench/run.sh`
+  sources it automatically with auto-export (`set -a; . "$ROOT/.env"; set +a`), so
+  the values reach the omnis-server it spawns. For the Python benches, `source .env`
+  (or the `set -a … set +a` form) before running. **Every new bench or test MUST
+  use this same root-`.env` mechanism** — never hardcode endpoints/keys or invent
+  per-tool credential loading. (`source ../omnis/.env` still works if you have the
+  omnis checkout next door, but the root `.env` is the canonical path in this repo.)
 
 ## Self-maintenance
 

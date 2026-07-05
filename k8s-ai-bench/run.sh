@@ -27,6 +27,21 @@
 #   TASK_PATTERN='fix' ./run.sh       # subset (regex, e.g. 'fix', 'pod', 'scale')
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$HERE/.." && pwd)"          # omnis-benches project root
+
+# ---- credentials: source the project-root .env (single mechanism) -----------
+# Put OPENAI_BASE_URL / OPENAI_API_KEY (whatever the omnis models.json reads) in
+# omnis-benches/.env. Sourced with auto-export so the values reach the
+# omnis-server that omnis-agent spawns per task. Keys the .env sets override the
+# current env; everything else passes through. .env is gitignored — never commit
+# secrets. (source ../omnis/.env still works if you have the omnis checkout.)
+if [ -f "$ROOT/.env" ]; then
+  echo ">> sourcing $ROOT/.env"
+  set -a
+  # shellcheck source=/dev/null
+  . "$ROOT/.env"
+  set +a
+fi
 
 OMNIS_SERVER_BIN="${OMNIS_SERVER_BIN:-$(command -v omnis-server || true)}"
 KAB_REPO="${KAB_REPO:-https://github.com/gke-labs/k8s-ai-bench}"
