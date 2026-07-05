@@ -1,0 +1,7 @@
+# generated at run time
+.build/
+.bench-home/
+.k8s-ai-bench/
+.smoke-trace.txt
+__pycache__/
+*.pyc

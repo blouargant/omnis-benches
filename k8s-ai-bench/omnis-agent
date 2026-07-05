@@ -1,0 +1,267 @@
+#!/usr/bin/env python3
+"""omnis-agent — k8s-ai-bench adapter.
+
+k8s-ai-bench (https://github.com/gke-labs/k8s-ai-bench) drives an agent as a CLI
+binary shaped like `kubectl-ai`:
+
+    <agent-bin> --kubeconfig <path> --llm-provider <id> --model <id> \\
+                --enable-tool-use-shim=<b> --quiet=<b> --trace-path <p> \\
+                --skip-permissions --show-tool-output [--mcp-client]
+
+with KUBECONFIG in the env and the task prompt(s) on **stdin**. This adapter
+presents that CLI and drives **omnis over its HTTP API**.
+
+Per invocation it spins up a **dedicated, throwaway omnis-server bound to the
+task's kubeconfig** (so omnis's kubectl/helm target exactly that ephemeral
+cluster and nothing else), sends the task to the Kubernetes squad, streams the
+result, then tears the server down. That keeps each task fully isolated and
+removes any chance of touching a real cluster.
+
+Design decisions
+----------------
+* **Dedicated server per task**, `KUBECONFIG=<--kubeconfig>` — the server's tools
+  target the task cluster by default; no `--kubeconfig` injection to forget.
+* **Shipped Kubernetes squad, unchanged** — autonomy comes from an
+  allow-everything permissions overlay (`bench-permissions.json`, bypassPermissions)
+  written into the per-task OMNIS_HOME, so mutations run without a human.
+* **Fixed omnis fleet** — `--model` / `--llm-provider` are accepted and IGNORED;
+  omnis uses its own configured fleet. The harness's model column is a label.
+
+Env:
+  OMNIS_SERVER_BIN   omnis-server binary (default: `omnis-server` on PATH)
+  OMNIS_SERVER       if set, drive this EXISTING server instead of spawning one
+                     (debug; its KUBECONFIG must already point at the cluster)
+  OMNIS_BENCH_SQUAD  squad to pin (default "kubernetes")
+  OMNIS_BENCH_DEADLINE  per-task seconds (default 600)
+  Model credentials (OPENAI_BASE_URL/OPENAI_API_KEY, …) are inherited from the
+  environment — `source` your omnis .env before running the harness.
+"""
+import argparse
+import json
+import os
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def parse_args(argv):
+    p = argparse.ArgumentParser(add_help=False)
+    p.add_argument("--kubeconfig", default=os.environ.get("KUBECONFIG", ""))
+    p.add_argument("--trace-path", default="")
+    for f in ("--llm-provider", "--model", "--enable-tool-use-shim", "--quiet"):
+        p.add_argument(f, default=None)          # accepted, ignored
+    for f in ("--skip-permissions", "--show-tool-output", "--mcp-client"):
+        p.add_argument(f, action="store_true")
+    args, _unknown = p.parse_known_args(argv)
+    return args
+
+
+# ------------------------------------------------------------------ HTTP / SSE
+def _req(method, base, path, token, body=None, timeout=600):
+    url = base.rstrip("/") + path
+    data = json.dumps(body).encode() if body is not None else None
+    r = urllib.request.Request(url, data=data, method=method)
+    r.add_header("Content-Type", "application/json")
+    if token:
+        r.add_header("Authorization", "Bearer " + token)
+    return urllib.request.urlopen(r, timeout=timeout)
+
+
+def api(method, base, path, token, body=None, timeout=60):
+    with _req(method, base, path, token, body, timeout) as resp:
+        raw = resp.read().decode("utf-8", "replace")
+    return json.loads(raw) if raw.strip() else {}
+
+
+def iter_sse(resp):
+    seq = ev = None
+    buf = []
+    for raw in resp:
+        line = raw.decode("utf-8", "replace").rstrip("\r\n")
+        if line == "":
+            if ev is not None:
+                blob = "\n".join(buf)
+                try:
+                    data = json.loads(blob) if blob else {}
+                except Exception:
+                    data = {"_raw": blob}
+                yield seq, ev, data
+            seq = ev = None
+            buf = []
+            continue
+        if line.startswith("id:"):
+            try:
+                seq = int(line[3:].strip())
+            except ValueError:
+                pass
+        elif line.startswith("event:"):
+            ev = line[6:].strip()
+        elif line.startswith("data:"):
+            buf.append(line[5:].lstrip())
+
+
+def consume(resp, out, trace, t0, deadline):
+    last_seq = 0
+    for seq, ev, d in iter_sse(resp):
+        if seq is not None:
+            last_seq = max(last_seq, seq)
+        if ev in ("token", "message"):
+            txt = d.get("text") or d.get("message") or ""
+            if txt:
+                out.write(txt); out.flush(); trace.append(txt)
+        elif ev in ("tool_call", "agent_tool_call"):
+            line = f"\n[tool] {d.get('name', '?')} {json.dumps(d.get('args', {}))[:400]}\n"
+            out.write(line); trace.append(line)
+        elif ev == "done":
+            return True, last_seq
+        if time.time() - t0 > deadline:
+            return False, last_seq
+    return False, last_seq
+
+
+# --------------------------------------------------- dedicated per-task server
+def free_port():
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+def spawn_server(kubeconfig):
+    """Start a throwaway omnis-server bound to `kubeconfig`; return (base, proc, home)."""
+    bin_ = os.environ.get("OMNIS_SERVER_BIN") or shutil.which("omnis-server")
+    if not bin_:
+        print("omnis-agent: omnis-server not found (set OMNIS_SERVER_BIN)", file=sys.stderr)
+        sys.exit(4)
+    home = tempfile.mkdtemp(prefix="omnis-kab-")
+    # allow-everything permissions overlay (bypassPermissions) so the squad mutates
+    # the ephemeral cluster without a human; layered over the normal config via the
+    # OMNIS_HOME config layer.
+    src = os.path.join(HERE, "bench-permissions.json")
+    if os.path.exists(src):
+        shutil.copy2(src, os.path.join(home, "permissions.json"))
+    else:
+        with open(os.path.join(home, "permissions.json"), "w") as f:
+            json.dump({"permissions": {"defaultMode": "bypassPermissions",
+                                       "deny": [], "ask": [], "allow": []}}, f)
+    port = free_port()
+    base = f"http://127.0.0.1:{port}"
+    env = dict(os.environ)
+    env.update({
+        "OMNIS_HOME": home,
+        "KUBECONFIG": kubeconfig or "",
+        "OMNIS_SERVER_ADDR": f":{port}",
+        "OMNIS_SERVER_TOKEN": "",
+        "OMNIS_UPDATE_CHECK": "false",
+    })
+    log = open(os.path.join(home, "server.log"), "w")
+    proc = subprocess.Popen([bin_], env=env, stdout=log, stderr=subprocess.STDOUT,
+                            start_new_session=True)
+    # wait for readiness
+    deadline = time.time() + 45
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(base + "/api/config/status", timeout=2):
+                return base, proc, home
+        except (urllib.error.URLError, ConnectionError, OSError):
+            if proc.poll() is not None:
+                break
+            time.sleep(0.4)
+    print(f"omnis-agent: bench server did not start; see {home}/server.log", file=sys.stderr)
+    stop_server(proc, home)
+    sys.exit(5)
+
+
+def stop_server(proc, home):
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        pass
+    try:
+        proc.wait(timeout=10)
+    except Exception:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except Exception:
+            pass
+    shutil.rmtree(home, ignore_errors=True)
+
+
+PREAMBLE = (
+    "You are operating on an EPHEMERAL benchmark Kubernetes cluster (it is the "
+    "default target of kubectl/helm here). Making changes to it is safe and "
+    "expected. Complete the task fully and AUTONOMOUSLY: actually apply the "
+    "changes needed and verify them; do not ask the user for confirmation.\n\nTASK:\n"
+)
+
+
+def main():
+    args = parse_args(sys.argv[1:])
+    token = os.environ.get("OMNIS_SERVER_TOKEN", "")
+    squad = os.environ.get("OMNIS_BENCH_SQUAD", "kubernetes")
+    deadline = int(os.environ.get("OMNIS_BENCH_DEADLINE", "600"))
+
+    task = sys.stdin.read().strip()
+    if not task:
+        print("omnis-agent: no task on stdin", file=sys.stderr)
+        return 2
+    prompt = PREAMBLE + task
+
+    existing = os.environ.get("OMNIS_SERVER", "")
+    proc = home = None
+    if existing:
+        base = existing
+    else:
+        base, proc, home = spawn_server(args.kubeconfig)
+
+    try:
+        sess = api("POST", base, "/api/sessions", token,
+                   {"squad": squad, "dir": os.getcwd(), "name": "k8s-ai-bench"})
+        sid = sess.get("session_id") or sess.get("id")
+        trace, t0, done, last_seq = [], time.time(), False, 0
+        try:
+            resp = _req("POST", base, f"/api/sessions/{sid}/messages", token,
+                        {"prompt": prompt}, timeout=deadline)
+            done, last_seq = consume(resp, sys.stdout, trace, t0, deadline)
+        except (urllib.error.URLError, ConnectionError, TimeoutError):
+            pass
+        while not done and time.time() - t0 < deadline:
+            try:
+                resp = _req("GET", base,
+                            f"/api/sessions/{sid}/messages/stream?from={last_seq}",
+                            token, timeout=deadline)
+                if getattr(resp, "status", 200) == 204:
+                    done = True
+                    break
+                done, last_seq = consume(resp, sys.stdout, trace, t0, deadline)
+            except (urllib.error.URLError, ConnectionError, TimeoutError):
+                time.sleep(1)
+        if not done:
+            try:
+                api("POST", base, f"/api/sessions/{sid}/cancel", token, {})
+            except Exception:
+                pass
+        if args.trace_path:
+            try:
+                with open(args.trace_path, "w") as f:
+                    f.write("".join(trace))
+            except OSError:
+                pass
+        sys.stdout.write("\n")
+        return 0 if done else 1
+    finally:
+        if proc is not None:
+            stop_server(proc, home)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

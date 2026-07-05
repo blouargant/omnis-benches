@@ -1,0 +1,9 @@
+{
+  "_comment": "TEMPORARY bench-only permissions: allow EVERYTHING so the omnis Kubernetes squad can mutate the ephemeral benchmark cluster non-interactively (no human to confirm). bypassPermissions is authoritative over all rules. The hard Bash safety floor in omnis (rm -rf /, mkfs, fork bombs) still applies independently. omnis-agent copies this into a per-task OMNIS_HOME whose omnis-server is bound to that task's ephemeral-cluster KUBECONFIG, so the blast radius is exactly that throwaway cluster. Do NOT ship this into a normal omnis install.",
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "deny": [],
+    "ask": [],
+    "allow": []
+  }
+}
