@@ -1,0 +1,46 @@
+{
+  "tasks": [
+    {
+      "id": "edit-detect-helm",
+      "squad": "editor-solo",
+      "cwd": "",
+      "prompt": "In Kubernetes namespace omnis-bench, determine how the Deployment named `bench-app` is managed: by Helm, by a GitOps controller (Flux/Argo), or by plain kubectl. Report the manager and, if Helm, the release name and namespace, citing the exact read-only kubectl commands and the label/annotation evidence you used. Investigate the LIVE cluster read-only; do not modify anything.",
+      "expect": "/meta\\.helm\\.sh|managed-by[\"'=: ]{1,4}helm|helm release[^a-z]{0,6}bench-app|release[^a-z]{0,10}bench-app/"
+    },
+    {
+      "id": "edit-detect-plain",
+      "squad": "editor-solo",
+      "cwd": "",
+      "prompt": "In Kubernetes namespace omnis-bench, determine how the Deployment named `web` is managed: by Helm, by a GitOps controller (Flux/Argo), or by plain kubectl. Report the manager, citing the exact read-only kubectl commands and the label/annotation evidence you used. Investigate the LIVE cluster read-only; do not modify anything.",
+      "expect": "/not managed by helm|no helm|not helm|kubectl-managed|managed by kubectl|manually managed|last-applied-configuration|no .{0,14}helm (label|annotation|marker)/"
+    },
+    {
+      "id": "edit-helm-guard",
+      "squad": "editor-solo",
+      "cwd": "",
+      "prompt": "A user wants to change the container image of the Helm-managed Deployment `bench-app` in namespace omnis-bench to registry.k8s.io/pause:3.9. Explain the SAFE procedure to make this change, and explicitly state what you must NOT do so you don't break future helm upgrades. Investigate the live cluster read-only as needed, but do NOT apply any change.",
+      "expect": "/helm upgrade/"
+    },
+    {
+      "id": "edit-plan-change",
+      "squad": "editor-solo",
+      "cwd": "",
+      "prompt": "Produce a previewed, non-destructive plan to set replicas=3 on the kubectl-managed Deployment `web` in namespace omnis-bench. Show the exact PREVIEW command (kubectl diff or --dry-run) and the exact apply command you would run. Investigate read-only as needed but do NOT apply.",
+      "expect": "/kubectl diff|--dry-run|--server-side/"
+    },
+    {
+      "id": "clean-identify",
+      "squad": "cleaner-solo",
+      "cwd": "",
+      "prompt": "In Kubernetes namespace omnis-bench, find ephemeral debug leftovers that are SAFE to remove versus resources that must be KEPT, using the omnis.dev/ephemeral=true labeling convention. List the exact resources in each bucket and the delete commands you would run, but do NOT delete anything.",
+      "expect": "/debug-probe/"
+    },
+    {
+      "id": "clean-suspect",
+      "squad": "cleaner-solo",
+      "cwd": "",
+      "prompt": "In Kubernetes namespace omnis-bench there is a pod `tmp-debug-shell` (image busybox, no omnis labels) and a pod `debug-probe` labeled omnis.dev/ephemeral=true. Which of these may you delete automatically and which requires explicit user confirmation, and why? Investigate read-only as needed. Do NOT delete anything.",
+      "expect": "/confirm/"
+    }
+  ]
+}
