@@ -54,6 +54,12 @@ TASK_PATTERN="${TASK_PATTERN:-}"
 # nested one level deeper. Point TASKS_DIR at tasks/gatekeeper to run that suite.
 TASKS_DIR="${TASKS_DIR:-$KAB_DIR/tasks}"
 CLUSTER_PROVIDER="${CLUSTER_PROVIDER:-kind}"
+# The harness treats --concurrency 0 as "auto" = number of tasks, i.e. it runs
+# EVERY task at once. That is wrong here: the kind path shares ONE cluster + ONE
+# omnis-server, so parallel mutating tasks contend for the single node and flood
+# the model endpoint → noisy, untrustworthy pass/fail. Default to sequential;
+# override with CONCURRENCY=N only if you know the tasks are isolated enough.
+CONCURRENCY="${CONCURRENCY:-1}"
 # --llm-provider/--model are required by the harness but IGNORED by omnis-agent
 # (omnis uses its own fleet); pass harmless placeholders.
 LLM_PROVIDER="${LLM_PROVIDER:-openai}"
@@ -151,6 +157,7 @@ echo ">> running k8s-ai-bench (agent = omnis; one shared server for the run)"
   --tasks-dir "$TASKS_DIR" \
   --output-dir "$OUTPUT_DIR" \
   --cluster-provider "$CLUSTER_PROVIDER" \
+  --concurrency "$CONCURRENCY" \
   ${CLUSTER_ARGS[@]+"${CLUSTER_ARGS[@]}"} \
   --llm-provider "$LLM_PROVIDER" \
   --models "$MODEL" \

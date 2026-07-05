@@ -108,9 +108,17 @@ TASK_PATTERN='fix' ./run.sh         # a subset (regex: 'fix', 'pod', 'scale', �
 creates the shared kind cluster, starts one shared omnis-server, runs the harness
 against `omnis-agent`, then deletes the cluster + server on exit. Results + JSONL
 land in `.build/`; use the harness's `analyze` subcommand for the report. Knobs:
+`CONCURRENCY=N` (tasks in parallel; **default 1 = sequential** — see below),
 `KEEP_CLUSTER=1` (don't delete the cluster), `SHARED_CLUSTER=<name>`,
 `CLUSTER_PROVIDER=vcluster` (falls back to a per-task server per isolated task),
 `TASKS_DIR=<dir>` (see the gatekeeper caveat below).
+
+> **`CONCURRENCY` defaults to 1 (sequential).** The upstream harness treats
+> `--concurrency 0` as *"auto = number of tasks"*, i.e. it runs **every task at
+> once**. On the shared single-cluster/single-server kind path that means parallel
+> mutating tasks contending for one node and flooding the model endpoint → noisy,
+> untrustworthy pass/fail. `run.sh` forces sequential by default; raise
+> `CONCURRENCY` only if you know the tasks are isolated enough (e.g. vcluster).
 
 ```bash
 # gatekeeper suite (nested one level deeper — point TASKS_DIR at it):

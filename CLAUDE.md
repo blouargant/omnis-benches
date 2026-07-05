@@ -103,7 +103,8 @@ then scoring with the task's `verify.sh` on an ephemeral kind cluster.
   kubeconfig current-context matches `OMNIS_SHARED_CONTEXT`; a task that declares
   `isolation: cluster` (the whole `gatekeeper/*` suite → its own cluster) gets a
   **dedicated throwaway server** spawned by `omnis-agent`, since a shared server
-  bound to one cluster can't reach a different one. Knobs: `KEEP_CLUSTER=1`,
+  bound to one cluster can't reach a different one. Knobs: `CONCURRENCY=N`
+  (default **1 = sequential**; see the concurrency gotcha), `KEEP_CLUSTER=1`,
   `SHARED_CLUSTER=<name>`; `CLUSTER_PROVIDER=vcluster` keeps the per-task-server
   path (every vcluster task is isolated). `OMNIS_SERVER=<url>` alone (no
   `OMNIS_SHARED_CONTEXT`) still drives one existing server for everything (debug).
@@ -148,7 +149,27 @@ then scoring with the task's `verify.sh` on an ephemeral kind cluster.
   `failed to read task file tasks/gatekeeper/task.yaml`. Run that suite with
   `TASKS_DIR=<clone>/tasks/gatekeeper` (a `run.sh` knob). Every gatekeeper task is
   `isolation: cluster` → its own cluster → a dedicated omnis-server (the
-  shared-server fallback path; validated with `must-have-key`).
+  shared-server fallback path; validated with `must-have-key`). **To run the 25
+  main tasks in one shot**, the filter is applied *before* the file read
+  (`eval.go` `loadTasks`), so `TASK_PATTERN='^[^g]'` skips the `gatekeeper/` dir
+  cleanly (gatekeeper is the only top-level entry starting with `g`; RE2 has no
+  negative lookahead, so this char-class trick is the simplest safe exclusion).
+- **`--concurrency 0` (the harness default) means "auto = number of tasks"** —
+  i.e. it runs EVERY task at once (`main.go` sets `Concurrency = len(tasks)`). On
+  the shared single-cluster/single-server kind path that's wrong: parallel mutating
+  tasks contend for one node and flood the model endpoint → noisy, untrustworthy
+  pass/fail. `run.sh` therefore forces sequential via `CONCURRENCY` (default 1);
+  raise it only when tasks are genuinely isolated (e.g. vcluster).
+- **Some task `setup.sh` scripts race the `default` ServiceAccount on a fresh
+  cluster.** `debug-app-logs` (and any task that applies a pod immediately after
+  `kubectl create namespace`) can fail setup with
+  `serviceaccount "default" not found` on a brand-new kind cluster — the SA token
+  controller hasn't created `default` yet. The harness then aborts the task
+  *before the agent runs* (`result: ""`, `error: running command …/setup.sh: exit
+  status 1`) — this is an **upstream task bug, not an omnis failure**; score it as a
+  non-scored setup error. It's usually transient (a warmed/reused cluster clears
+  it); a real fix would add a `kubectl -n <ns> wait`/retry for the SA in the
+  upstream `setup.sh`.
 - **Layer an omnis config override cheaply** via `OMNIS_HOME=<tmp>` holding just
   the file you want to override (e.g. `permissions.json`) — the chain picks it up
   above `/etc/omnis` while everything else falls through.
