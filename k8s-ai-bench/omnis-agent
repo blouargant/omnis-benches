@@ -11,16 +11,22 @@ binary shaped like `kubectl-ai`:
 with KUBECONFIG in the env and the task prompt(s) on **stdin**. This adapter
 presents that CLI and drives **omnis over its HTTP API**.
 
-Per invocation it spins up a **dedicated, throwaway omnis-server bound to the
-task's kubeconfig** (so omnis's kubectl/helm target exactly that ephemeral
-cluster and nothing else), sends the task to the Kubernetes squad, streams the
-result, then tears the server down. That keeps each task fully isolated and
-removes any chance of touching a real cluster.
+omnis-server multiplexes many sessions, so by default (see run.sh) a SINGLE
+shared server is started for the whole run, bound to the run's shared cluster,
+and each task invocation just opens a new session on it (via OMNIS_SERVER +
+OMNIS_SHARED_CONTEXT). A task that declares its own cluster (`isolation: cluster`,
+e.g. the gatekeeper suite) gets a **dedicated throwaway omnis-server spawned here,
+bound to that task's kubeconfig**. Either way omnis's kubectl/helm target exactly
+the task's ephemeral cluster and nothing else; the session is streamed, then any
+dedicated server is torn down.
 
 Design decisions
 ----------------
-* **Dedicated server per task**, `KUBECONFIG=<--kubeconfig>` — the server's tools
-  target the task cluster by default; no `--kubeconfig` injection to forget.
+* **One server, many sessions** — omnis-server handles concurrent sessions, so
+  run.sh runs ONE server for the whole (shared-cluster) run and each task opens a
+  session on it. Only `isolation: cluster` tasks (their own cluster) get a
+  dedicated server spawned here. Servers bind `KUBECONFIG=<--kubeconfig>` so their
+  tools target the right cluster with no `--kubeconfig` injection to forget.
 * **Shipped Kubernetes squad, unchanged** — autonomy comes from an
   allow-everything permissions overlay (`bench-permissions.json`, bypassPermissions)
   written into the per-task OMNIS_HOME, so mutations run without a human.
@@ -34,7 +40,11 @@ Design decisions
 Env:
   OMNIS_SERVER_BIN   omnis-server binary (default: `omnis-server` on PATH)
   OMNIS_SERVER       if set, drive this EXISTING server instead of spawning one
-                     (debug; its KUBECONFIG must already point at the cluster)
+                     (its KUBECONFIG must already point at the cluster). run.sh
+                     sets this to the run-wide shared server.
+  OMNIS_SHARED_CONTEXT  kube-context of the shared server's cluster; a task whose
+                     --kubeconfig current-context matches reuses OMNIS_SERVER,
+                     otherwise a dedicated server is spawned here. (Set by run.sh.)
   OMNIS_BENCH_SQUAD  squad to pin (default "kubernetes")
   OMNIS_BENCH_DEADLINE  per-task seconds (default 600)
   Model credentials (OPENAI_BASE_URL/OPENAI_API_KEY, …) are inherited from the
@@ -175,6 +185,27 @@ def consume(resp, out, trace, usage, t0, deadline):
 
 
 # --------------------------------------------------- dedicated per-task server
+def kubeconfig_context(path):
+    """current-context of a kubeconfig file ('' if missing/unreadable).
+
+    Lets us tell a run-wide shared cluster (OMNIS_SHARED_CONTEXT) apart from an
+    `isolation: cluster` task's own cluster, so the shared server is reused only
+    for the former. On any parse failure we return '' → fall back to spawning a
+    dedicated server (safe default).
+    """
+    if not path:
+        return ""
+    try:
+        with open(path) as f:
+            for line in f:
+                s = line.strip()
+                if s.startswith("current-context:"):
+                    return s.split(":", 1)[1].strip().strip("'\"")
+    except OSError:
+        return ""
+    return ""
+
+
 def free_port():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind(("127.0.0.1", 0))
@@ -211,8 +242,9 @@ def spawn_server(kubeconfig):
         "OMNIS_UPDATE_CHECK": "false",
     })
     log = open(os.path.join(home, "server.log"), "w")
-    proc = subprocess.Popen([bin_], env=env, stdout=log, stderr=subprocess.STDOUT,
-                            start_new_session=True)
+    # --no-browser: headless bench, never pop a browser tab.
+    proc = subprocess.Popen([bin_, "--no-browser"], env=env, stdout=log,
+                            stderr=subprocess.STDOUT, start_new_session=True)
     # wait for readiness
     deadline = time.time() + 45
     while time.time() < deadline:
@@ -263,12 +295,25 @@ def main():
         return 2
     prompt = PREAMBLE + task
 
+    # Server selection:
+    #   * OMNIS_SERVER + kubeconfig context == OMNIS_SHARED_CONTEXT -> reuse the
+    #     run-wide shared server (one server, many sessions; run.sh owns it).
+    #   * OMNIS_SERVER + no OMNIS_SHARED_CONTEXT -> reuse it for everything (plain
+    #     debug override).
+    #   * otherwise (e.g. an isolation:cluster task with its own cluster) -> spawn
+    #     a dedicated throwaway server bound to this task's kubeconfig.
     existing = os.environ.get("OMNIS_SERVER", "")
+    shared_ctx = os.environ.get("OMNIS_SHARED_CONTEXT", "")
     proc = home = None
-    if existing:
+    task_ctx = kubeconfig_context(args.kubeconfig)
+    if existing and (not shared_ctx or task_ctx == shared_ctx):
         base = existing
+        print(f"omnis-agent: reusing shared server {base} (context {task_ctx or '?'})",
+              file=sys.stderr)
     else:
         base, proc, home = spawn_server(args.kubeconfig)
+        print(f"omnis-agent: spawned dedicated server {base} for context "
+              f"{task_ctx or '?'}", file=sys.stderr)
 
     try:
         sess = api("POST", base, "/api/sessions", token,

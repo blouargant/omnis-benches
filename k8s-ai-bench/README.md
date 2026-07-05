@@ -19,27 +19,37 @@ task's `verify.sh`.
 
 **[`omnis-agent`](omnis-agent)** is that binary: a dependency-free Python client
 that accepts the kubectl-ai flags and drives **omnis over its HTTP API**. Per
-invocation it **spawns a dedicated, throwaway omnis-server bound to that task's
-kubeconfig**, pins a session to the Kubernetes squad, sends the task, streams the
-SSE, prints the transcript, tears the server down, and exits 0 on success. It is
-the single entry point.
+invocation it pins a session to the Kubernetes squad, sends the task, streams the
+SSE, prints the transcript, and exits 0 on success. It is the single entry point.
+
+Because omnis-server multiplexes many sessions, **[`run.sh`](run.sh) starts ONE
+shared omnis-server for the whole run** (bound to a run-owned shared cluster it
+creates and **deletes on exit**), and each task just opens a session on it via
+`OMNIS_SERVER`. A task that declares its own cluster (`isolation: cluster`, e.g.
+the gatekeeper suite) gets a **dedicated throwaway server** that `omnis-agent`
+spawns and tears down, bound to that task's kubeconfig.
 
 ```
-k8s-ai-bench  --agent-bin ./omnis-agent  (per task)
-      │  stdin: "<task goal>"   --kubeconfig <ephemeral-cluster>
+run.sh
+  ├─ create kind cluster ──▶ start ONE shared omnis-server (KUBECONFIG=cluster,
+  │                            Kubernetes squad, allow-all permissions)
+  ▼
+k8s-ai-bench  --agent-bin ./omnis-agent  --kubeconfig <shared>  (per task)
+      │  stdin: "<task goal>"
       ▼
-  omnis-agent
-      │  spawns  ──▶  omnis-server (throwaway, KUBECONFIG=<task cluster>,
-      │                             Kubernetes squad, allow-all permissions)
-      │  ──HTTP/SSE──▶  session → task → kubectl/helm on the task cluster
-      └── prints transcript ; then kills the server
+  omnis-agent ──HTTP/SSE──▶  new session on the shared server → task
+      │                        → kubectl/helm on the cluster
+      │  (isolation:cluster task → spawns its OWN throwaway server instead)
+      └── prints transcript
       ▼
   verify.sh  ──▶  Pass@k
+  ▼
+run.sh (on exit): stop shared server + delete the kind cluster
 ```
 
 Because the server's `KUBECONFIG` **is** the task cluster, omnis's kubectl/helm
 target it by default — no `--kubeconfig` juggling, and the server can't reach any
-other cluster. Each task gets a fresh, isolated server.
+other cluster.
 
 ### Design decisions (see `omnis-agent` header for details)
 
@@ -53,11 +63,16 @@ other cluster. Each task gets a fresh, isolated server.
 - **Fixed omnis fleet.** The harness's `--model` / `--llm-provider` are accepted
   and **ignored**; omnis uses its own configured fleet (the harness's model column
   is just a label). To sweep omnis models, change the omnis config, not the flag.
-- **Dedicated server per task, bound to the task's kubeconfig.** omnis's `kubectl`
-  runs inside the *server* process, so `omnis-agent` spawns a throwaway
-  omnis-server with `KUBECONFIG=<task-path>` for each invocation. omnis then
-  targets exactly that ephemeral cluster by default (no `--kubeconfig` juggling),
-  the server can't reach any other cluster, and it's torn down when the task ends.
+- **One server, many sessions (+ auto cluster teardown).** omnis-server handles
+  concurrent sessions, so `run.sh` runs a **single** server for the whole run and
+  each task opens a session on it — no per-task server boot. omnis's `kubectl`
+  runs inside the *server* process, so the server binds `KUBECONFIG=<shared
+  cluster>`; `run.sh` owns that cluster's lifecycle (creates it, hands the harness
+  `--cluster-creation-policy DoNotCreate --kubeconfig <shared>`, and **deletes the
+  cluster on exit** — the upstream harness never deletes it). Only
+  `isolation: cluster` tasks (their own cluster) get a dedicated server, spawned
+  and torn down by `omnis-agent`; the harness deletes those clusters itself.
+  Override with `KEEP_CLUSTER=1` (keep the cluster) or `SHARED_CLUSTER=<name>`.
 - **Token/cost accounting.** `omnis-agent` folds the stream's `turn_usage` frames
   into a per-agent tally (prompt / output / cache-read tokens, call count, and an
   estimated USD cost from the model's `$/M` prices — same math as squad-bench's
@@ -70,7 +85,8 @@ other cluster. Each task gets a fresh, isolated server.
 
 Not auto-installed:
 
-- **docker + kind** — k8s-ai-bench creates an ephemeral cluster per task.
+- **docker + kind** — `run.sh` creates one ephemeral kind cluster for the run
+  (and `isolation: cluster` tasks get their own); all are torn down at the end.
 - **kubectl + helm** on PATH — omnis's tools shell out to them.
 - **go** — to build the upstream harness.
 - **omnis-server** on PATH (or `OMNIS_SERVER_BIN=/path/to/omnis-server`).
@@ -88,10 +104,18 @@ Not auto-installed:
 TASK_PATTERN='fix' ./run.sh         # a subset (regex: 'fix', 'pod', 'scale', …)
 ```
 
-`run.sh` clones + builds the upstream harness (pin a commit with `KAB_REF=<sha>`)
-and runs it against `omnis-agent`, which owns the per-task server lifecycle.
-Results + JSONL land in `.build/`; use the harness's `analyze` subcommand for the
-report.
+`run.sh` clones + builds the upstream harness (pin a commit with `KAB_REF=<sha>`),
+creates the shared kind cluster, starts one shared omnis-server, runs the harness
+against `omnis-agent`, then deletes the cluster + server on exit. Results + JSONL
+land in `.build/`; use the harness's `analyze` subcommand for the report. Knobs:
+`KEEP_CLUSTER=1` (don't delete the cluster), `SHARED_CLUSTER=<name>`,
+`CLUSTER_PROVIDER=vcluster` (falls back to a per-task server per isolated task),
+`TASKS_DIR=<dir>` (see the gatekeeper caveat below).
+
+```bash
+# gatekeeper suite (nested one level deeper — point TASKS_DIR at it):
+TASKS_DIR="$PWD/.k8s-ai-bench/tasks/gatekeeper" TASK_PATTERN='must-have-key' ./run.sh
+```
 
 ### Driving omnis-agent directly (debug)
 
@@ -115,9 +139,17 @@ PATH), `OMNIS_SERVER` (drive an existing server instead of spawning),
 - **Multi-step tasks**: omnis reads the task as one prompt, so a task's multiple
   script steps are sent to omnis as a single turn (omnis gets the full goal at
   once). Fine for single-goal tasks; a per-step session mode is a future add.
-- **Per-task server boot**: each invocation (and each Pass@k attempt) spawns a
-  fresh omnis-server (~1–3 s). Isolated and safe; just not free. Concurrency is
-  fine — each invocation binds its own free port.
+- **Shared server, concurrent sessions**: the run's tasks share one omnis-server
+  (and one cluster), so a whole batch mutates the same cluster in parallel under
+  distinct namespaces — same as before, but now through one server. Only
+  `isolation: cluster` tasks still pay a per-task server boot (~1–3 s), since each
+  is a genuinely separate cluster.
+- **Gatekeeper suite is nested (flat loader).** The harness's task loader is flat
+  — it expects `tasks/<id>/task.yaml` and **errors on any top-level dir without
+  one**, notably `tasks/gatekeeper/` (its tasks live a level deeper). So a plain
+  full `./run.sh` over `tasks/` aborts on `gatekeeper/`; run that suite separately
+  with `TASKS_DIR=.../tasks/gatekeeper`. Every gatekeeper task is
+  `isolation: cluster` (its own cluster → a dedicated omnis-server).
 - **`analyze` / LLM-judge**: some k8s-ai-bench reporting may use its own judge
   model via `--llm-provider`/`--models`; those flags configure the *harness*, not
   omnis. Set them to something valid for your environment if the analyze step

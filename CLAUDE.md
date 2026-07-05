@@ -91,11 +91,22 @@ then scoring with the task's `verify.sh` on an ephemeral kind cluster.
 
 `omnis-agent` is that binary. **Design (do not "fix" without reason):**
 
-- **Dedicated server per task.** Per invocation it spawns a throwaway
-  omnis-server with `KUBECONFIG=<--kubeconfig>` (so omnis's kubectl/helm target
-  exactly that ephemeral cluster and can't reach any other), drives the Kubernetes
-  squad over HTTP, then tears it down. `OMNIS_SERVER=<url>` overrides to drive an
-  existing server (debug).
+- **One shared server per run + auto cluster teardown (do not revert to per-task
+  servers).** omnis-server multiplexes sessions, so `run.sh` (kind path) owns the
+  lifecycle: it creates the shared kind cluster `k8s-ai-bench-eval`, starts ONE
+  omnis-server bound to it (`KUBECONFIG=<shared>`), hands the harness
+  `--cluster-creation-policy DoNotCreate --kubeconfig <shared>`, and on exit stops
+  the server and **deletes the cluster** (the upstream harness never deletes it —
+  it only `defer os.Remove`s the temp kubeconfig *file*). It exports
+  `OMNIS_SERVER=<url>` + `OMNIS_SHARED_CONTEXT=kind-k8s-ai-bench-eval`. Each
+  `omnis-agent` invocation opens a session on that server when the task's
+  kubeconfig current-context matches `OMNIS_SHARED_CONTEXT`; a task that declares
+  `isolation: cluster` (the whole `gatekeeper/*` suite → its own cluster) gets a
+  **dedicated throwaway server** spawned by `omnis-agent`, since a shared server
+  bound to one cluster can't reach a different one. Knobs: `KEEP_CLUSTER=1`,
+  `SHARED_CLUSTER=<name>`; `CLUSTER_PROVIDER=vcluster` keeps the per-task-server
+  path (every vcluster task is isolated). `OMNIS_SERVER=<url>` alone (no
+  `OMNIS_SHARED_CONTEXT`) still drives one existing server for everything (debug).
 - **Shipped squad unchanged + allow-all permissions.** `bench-permissions.json`
   (`bypassPermissions`) is copied into the per-task `OMNIS_HOME` so the
   confirmation-oriented squad mutates the sandbox without a human. Known risk: the
@@ -128,8 +139,16 @@ then scoring with the task's `verify.sh` on an ephemeral kind cluster.
   execute** (the bench can't approve it). For cluster-touching squad-bench tasks,
   gate the omnis server: hard-deny mutations + broadly allow reads (incl.
   `Bash(*)`) so nothing hangs and the cluster stays read-only. (k8s-ai-bench is
-  different: it *wants* mutation, hence `bypassPermissions` + a per-task
-  throwaway cluster.)
+  different: it *wants* mutation, hence `bypassPermissions` + a throwaway kind
+  cluster that `run.sh` deletes at the end of the run.)
+- **k8s-ai-bench's task loader is FLAT** — `loadTasks` reads only top-level
+  `tasks/<id>/task.yaml` and **errors on any top-level dir lacking one**. The only
+  offender is `tasks/gatekeeper/` (tasks nested a level deeper), so a plain
+  `./run.sh` over `tasks/` (or any pattern matching `gatekeeper`) aborts with
+  `failed to read task file tasks/gatekeeper/task.yaml`. Run that suite with
+  `TASKS_DIR=<clone>/tasks/gatekeeper` (a `run.sh` knob). Every gatekeeper task is
+  `isolation: cluster` → its own cluster → a dedicated omnis-server (the
+  shared-server fallback path; validated with `must-have-key`).
 - **Layer an omnis config override cheaply** via `OMNIS_HOME=<tmp>` holding just
   the file you want to override (e.g. `permissions.json`) — the chain picks it up
   above `/etc/omnis` while everything else falls through.
