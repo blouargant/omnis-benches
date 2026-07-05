@@ -104,6 +104,11 @@ then scoring with the task's `verify.sh` on an ephemeral kind cluster.
 - **Fixed omnis fleet.** `--model` / `--llm-provider` are accepted and **ignored**
   (omnis uses its own fleet); the harness's model column is a label. To vary
   omnis's models, change the omnis config.
+- **Token/cost accounting.** `omnis-agent` folds `turn_usage` frames into a
+  per-agent tally (prompt/output/cache-read tokens, calls, est. USD cost — same
+  math as squad-bench's `models` block) and prints a summary to **stderr**
+  (`omnis-agent: usage …`), also appended as a footer to `--trace-path`. Diagnostic
+  only; stdout stays the answer the harness scores, so Pass@k is unaffected.
 - Env: `OMNIS_SERVER_BIN` (omnis-server binary), `OMNIS_BENCH_SQUAD` (default
   `kubernetes`), `OMNIS_BENCH_DEADLINE`. Running the full suite needs
   **kind + docker + go** (not auto-installed).

@@ -26,6 +26,10 @@ Design decisions
   written into the per-task OMNIS_HOME, so mutations run without a human.
 * **Fixed omnis fleet** — `--model` / `--llm-provider` are accepted and IGNORED;
   omnis uses its own configured fleet. The harness's model column is a label.
+* **Token/cost accounting** — the stream's `turn_usage` frames are folded into a
+  per-agent tally (prompt/output/cache-read tokens, calls, est. USD cost). At end
+  of task a summary is printed to stderr (`omnis-agent: usage …`) and appended as a
+  footer to `--trace-path` if given. stdout stays the answer the harness scores.
 
 Env:
   OMNIS_SERVER_BIN   omnis-server binary (default: `omnis-server` on PATH)
@@ -108,7 +112,48 @@ def iter_sse(resp):
             buf.append(line[5:].lstrip())
 
 
-def consume(resp, out, trace, t0, deadline):
+def note_usage(usage, d):
+    """Fold a `turn_usage` frame into the running per-agent usage/cost map.
+
+    Mirrors squad-bench's note_model: prices are $/M tokens, so /1e6 to $/token.
+    """
+    a = d.get("agent") or "?"
+    e = usage.setdefault(
+        a, {"in_per_m": d.get("in_price_per_m"), "out_per_m": d.get("out_price_per_m"),
+            "prompt_tok": 0, "out_tok": 0, "cache_read_tok": 0, "calls": 0,
+            "est_cost_usd": 0.0})
+    e["prompt_tok"] += d.get("prompt_tokens") or 0
+    e["out_tok"] += d.get("output_tokens") or 0
+    e["cache_read_tok"] += d.get("cache_read_tokens") or 0
+    e["calls"] += 1
+    inp = (d.get("in_price_per_m") or 0) / 1e6
+    outp = (d.get("out_price_per_m") or 0) / 1e6
+    crp = (d.get("cache_read_price_per_m") or 0) / 1e6
+    e["est_cost_usd"] = round(
+        e["est_cost_usd"]
+        + (d.get("prompt_tokens") or 0) * inp
+        + (d.get("output_tokens") or 0) * outp
+        + (d.get("cache_read_tokens") or 0) * crp, 6)
+
+
+def usage_summary(usage):
+    """Human-readable multi-line usage/cost summary ("" if nothing recorded)."""
+    if not usage:
+        return ""
+    tot_prompt = sum(e["prompt_tok"] for e in usage.values())
+    tot_out = sum(e["out_tok"] for e in usage.values())
+    tot_cache = sum(e["cache_read_tok"] for e in usage.values())
+    tot_cost = round(sum(e["est_cost_usd"] for e in usage.values()), 6)
+    lines = [f"usage: prompt_tok={tot_prompt} out_tok={tot_out} "
+             f"cache_read_tok={tot_cache} est_cost_usd=${tot_cost}"]
+    for a, e in sorted(usage.items()):
+        lines.append(f"  {a}: prompt={e['prompt_tok']} out={e['out_tok']} "
+                     f"cache_read={e['cache_read_tok']} calls={e['calls']} "
+                     f"~${e['est_cost_usd']}")
+    return "\n".join(lines)
+
+
+def consume(resp, out, trace, usage, t0, deadline):
     last_seq = 0
     for seq, ev, d in iter_sse(resp):
         if seq is not None:
@@ -120,6 +165,8 @@ def consume(resp, out, trace, t0, deadline):
         elif ev in ("tool_call", "agent_tool_call"):
             line = f"\n[tool] {d.get('name', '?')} {json.dumps(d.get('args', {}))[:400]}\n"
             out.write(line); trace.append(line)
+        elif ev == "turn_usage":
+            note_usage(usage, d)
         elif ev == "done":
             return True, last_seq
         if time.time() - t0 > deadline:
@@ -227,11 +274,11 @@ def main():
         sess = api("POST", base, "/api/sessions", token,
                    {"squad": squad, "dir": os.getcwd(), "name": "k8s-ai-bench"})
         sid = sess.get("session_id") or sess.get("id")
-        trace, t0, done, last_seq = [], time.time(), False, 0
+        trace, usage, t0, done, last_seq = [], {}, time.time(), False, 0
         try:
             resp = _req("POST", base, f"/api/sessions/{sid}/messages", token,
                         {"prompt": prompt}, timeout=deadline)
-            done, last_seq = consume(resp, sys.stdout, trace, t0, deadline)
+            done, last_seq = consume(resp, sys.stdout, trace, usage, t0, deadline)
         except (urllib.error.URLError, ConnectionError, TimeoutError):
             pass
         while not done and time.time() - t0 < deadline:
@@ -242,7 +289,7 @@ def main():
                 if getattr(resp, "status", 200) == 204:
                     done = True
                     break
-                done, last_seq = consume(resp, sys.stdout, trace, t0, deadline)
+                done, last_seq = consume(resp, sys.stdout, trace, usage, t0, deadline)
             except (urllib.error.URLError, ConnectionError, TimeoutError):
                 time.sleep(1)
         if not done:
@@ -250,10 +297,16 @@ def main():
                 api("POST", base, f"/api/sessions/{sid}/cancel", token, {})
             except Exception:
                 pass
+        summary = usage_summary(usage)
+        if summary:
+            for ln in summary.splitlines():
+                print("omnis-agent: " + ln, file=sys.stderr)
         if args.trace_path:
             try:
                 with open(args.trace_path, "w") as f:
                     f.write("".join(trace))
+                    if summary:
+                        f.write("\n\n--- " + summary + "\n")
             except OSError:
                 pass
         sys.stdout.write("\n")

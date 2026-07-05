@@ -58,6 +58,13 @@ other cluster. Each task gets a fresh, isolated server.
   omnis-server with `KUBECONFIG=<task-path>` for each invocation. omnis then
   targets exactly that ephemeral cluster by default (no `--kubeconfig` juggling),
   the server can't reach any other cluster, and it's torn down when the task ends.
+- **Token/cost accounting.** `omnis-agent` folds the stream's `turn_usage` frames
+  into a per-agent tally (prompt / output / cache-read tokens, call count, and an
+  estimated USD cost from the model's `$/M` prices — same math as squad-bench's
+  `models` block). At end of task it writes a summary to **stderr** (lines prefixed
+  `omnis-agent: usage …`) and, if `--trace-path` is set, appends the same summary
+  as a footer to the trace file. stdout stays the answer text the harness scores,
+  so this is diagnostic only and doesn't affect Pass@k.
 
 ## Prerequisites
 
