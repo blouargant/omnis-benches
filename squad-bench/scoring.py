@@ -50,15 +50,43 @@ def score_facts(facts, answers):
 def check_forbidden(forbidden, answers):
     """Ids of violated rules. A match that carries its `unless` hedge is NOT a
     violation — the baseline names an unconfirmed part reference while saying so,
-    and that is correct behaviour, not a defect."""
+    and that is correct behaviour, not a defect.
+
+    When a rule specifies `on` (explicit turn index), only that turn is evaluated.
+    When `on` is absent (None), each turn is evaluated individually — a violation is
+    any single turn that matches `match` without also matching `unless` in that same
+    turn. This ensures the hedge must accompany the assertion; a hedge in a distant
+    turn does not whitewash an unhedged assertion elsewhere."""
     hits = []
     for f in forbidden or []:
-        text = _answer_for(answers, f.get("on"))
-        if not match_rule(f.get("match"), text):
-            continue
-        if f.get("unless") and match_rule(f["unless"], text):
-            continue
-        hits.append(f.get("id"))
+        on_idx = f.get("on")
+
+        if on_idx is not None:
+            # Explicit turn: check only that turn (original behavior)
+            text = _answer_for(answers, on_idx)
+            if not match_rule(f.get("match"), text):
+                continue
+            if f.get("unless") and match_rule(f["unless"], text):
+                continue
+            hits.append(f.get("id"))
+        else:
+            # No explicit turn: check each turn individually
+            # A violation is any turn that matches `match` but not `unless`
+            answers_list = answers or []
+            violated = False
+            for turn_text in answers_list:
+                if not match_rule(f.get("match"), turn_text):
+                    continue
+                # Turn matches `match` - check if it also has the `unless` hedge
+                if f.get("unless") and match_rule(f["unless"], turn_text):
+                    # Has the hedge - not a violation in this turn
+                    continue
+                # No hedge in this turn - violation found
+                violated = True
+                break
+
+            if violated:
+                hits.append(f.get("id"))
     return hits
 
 

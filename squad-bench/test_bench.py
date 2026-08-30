@@ -59,6 +59,21 @@ class TestCheckForbidden(unittest.TestCase):
         answers = ["La référence 9831776780 n'a pas pu être confirmée — à vérifier."]
         self.assertEqual(scoring.check_forbidden(rules, answers), [])
 
+    def test_hedge_in_different_turn_is_a_violation(self):
+        """When on is absent, each turn is checked individually. A hedge in turn 5
+        does not whitewash an unhedged assertion in turn 0."""
+        rules = [{"id": "ref-as-fact", "match": "/9831776780/",
+                  "unless": "/non confirm|à vérifier/"}]
+        answers = ["la ref est 9831776780", "a", "b", "c", "d", "non confirmé plus tard"]
+        self.assertEqual(scoring.check_forbidden(rules, answers), ["ref-as-fact"])
+
+    def test_hedge_in_same_turn_is_not_a_violation_without_on(self):
+        """Without on, a hedge and assertion in the same turn is not a violation."""
+        rules = [{"id": "ref-as-fact", "match": "/9831776780/",
+                  "unless": "/non confirm|à vérifier/"}]
+        answers = ["La référence 9831776780 n'a pas pu être confirmée — à vérifier."]
+        self.assertEqual(scoring.check_forbidden(rules, answers), [])
+
 
 class TestQualityGate(unittest.TestCase):
     def test_passes_when_all_required_found_and_nothing_forbidden(self):
