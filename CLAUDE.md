@@ -37,6 +37,7 @@ Keep the "Gotchas" section current — it encodes hard-won facts.
 | Dir | What it is | Entry point |
 |---|---|---|
 | `squad-bench/` | **Squad-behaviour** benchmark: drives a running omnis-server like the web UI (session pinned to a squad → one task → stream the SSE) → a metrics record. Swap an agent's model/instruction, re-run the same task, compare. | `bench.py` |
+| `squad-bench/campaign.py` | **Interleaved multi-variant campaigns** over `bench.py` + `variants.py`: alternates config variants in time against the same task suite with a V0 drift witness, flags search-backend degradation post-hoc, and reports medians with their observed spread. | `campaign.py` |
 | `model-probe/` | **Endpoint capability** probe: verifies a live OpenAI-compatible endpoint+model supports the features omnis uses (streamed chat, tool calling streaming+non-streaming, parameterless tools over streaming, tool-result round-trip, caching/usage/model-info). Exit≠0 iff a critical check fails. Has its own **`model-probe/CLAUDE.md`**. | `probe.py` |
 | `k8s-ai-bench/` | Adapter for the gke-labs **k8s-ai-bench** suite (Pass@k on real k8s tasks against ephemeral clusters), so omnis is scored comparably to other agents. | `omnis-agent` |
 
@@ -94,6 +95,26 @@ tools — keep them in sync if you change the protocol handling.
   from the `models.json` active when it was captured, since the record doesn't
   persist that price per agent). Do not compare a pre-fix and post-fix record
   for a caching agent as if they were on the same scale.
+- `campaign.py` — interleaved multi-variant campaigns with a V0 drift witness;
+  `variants.py`/`variants.json` apply config variants over the HTTP API (verified
+  apply, checked revert). Two things beyond the base campaign loop:
+  - **Post-hoc search-degradation detection** (not a pre-flight probe — the
+    fleet runs a paid Serper backend, so probing e.g. DuckDuckGo would measure
+    the wrong thing): every completed record is inspected after the fact and
+    flagged `search_degraded` (+ `degraded_reason`) when its `subagent_errors`
+    carry a search-failure marker (deadline exceeded / timeout / non-functional
+    / rate limit / 429 / no results, case-insensitive) or its `fetches` count
+    sits >3x from the median of its same-task-and-variant peers in the
+    campaign (variant-scoped so a variant that legitimately fetches fewer
+    times by design, e.g. one that delegates fetching to collapse an F^2
+    term, is never penalized for doing its job). Degraded
+    records stay in the JSONL but are excluded from the end-of-campaign medians.
+  - **Medians are always reported WITH their spread** (min–max range + run
+    count), never as a bare number or a bare "N% cheaper" claim — two runs of
+    the *identical* config were measured to differ 1.85x in cost and 1.5x in
+    fetches, so a difference smaller than that spread is not evidence of
+    anything. `campaign.spread()`/`campaign.campaign_summary()` are the tested
+    building blocks; `print_campaign_summary` is the CLI's end-of-run report.
 - Unit tests: `python3 -m unittest discover -s squad-bench` (stdlib only).
 
 ## model-probe

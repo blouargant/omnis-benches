@@ -313,5 +313,252 @@ class TestNoteModelCacheBilling(unittest.TestCase):
         self.assertAlmostEqual(cost, (150 * 1.0 + 10 * 20.0) / 1e6, places=6)
 
 
+import campaign
+
+
+class TestInterleavedOrder(unittest.TestCase):
+    def test_variants_alternate_within_each_repeat(self):
+        self.assertEqual(campaign.interleaved_order(["V0", "V1", "V3"], 2),
+                         ["V0", "V1", "V3", "V0", "V1", "V3"])
+
+    def test_single_repeat_is_one_pass(self):
+        self.assertEqual(campaign.interleaved_order(["V0", "V1"], 1), ["V0", "V1"])
+
+    def test_zero_repeats_is_empty(self):
+        self.assertEqual(campaign.interleaved_order(["V0"], 0), [])
+
+
+class TestMedian(unittest.TestCase):
+    def test_odd_length(self):
+        self.assertEqual(campaign.median([3, 1, 2]), 2)
+
+    def test_even_length_averages_the_middle(self):
+        self.assertEqual(campaign.median([1, 2, 3, 4]), 2.5)
+
+    def test_empty_is_none(self):
+        self.assertIsNone(campaign.median([]))
+
+
+class TestDriftOk(unittest.TestCase):
+    def test_stable_witness_passes(self):
+        first = [{"task": "t", "quality_gate": True, "total_cost_usd": 1.0}]
+        last = [{"task": "t", "quality_gate": True, "total_cost_usd": 1.2}]
+        ok, _ = campaign.drift_ok(first, last)
+        self.assertTrue(ok)
+
+    def test_one_task_regressing_voids_the_campaign(self):
+        """A single canary regression must void it; the others still passing
+        must not mask it."""
+        first = [{"task": "web-canary", "quality_gate": True, "total_cost_usd": 1.0},
+                 {"task": "web-lookup", "quality_gate": True, "total_cost_usd": 1.0}]
+        last = [{"task": "web-canary", "quality_gate": False, "total_cost_usd": 1.0},
+                {"task": "web-lookup", "quality_gate": True, "total_cost_usd": 1.0}]
+        ok, why = campaign.drift_ok(first, last)
+        self.assertFalse(ok)
+        self.assertIn("web-canary", why)
+
+    def test_cost_doubling_in_the_witness_voids_the_campaign(self):
+        first = [{"task": "t", "quality_gate": True, "total_cost_usd": 1.0}]
+        last = [{"task": "t", "quality_gate": True, "total_cost_usd": 2.5}]
+        ok, why = campaign.drift_ok(first, last)
+        self.assertFalse(ok)
+        self.assertIn("cost", why.lower())
+
+
+class TestSearchDegradation(unittest.TestCase):
+    """Post-hoc degradation detector (replaces a pre-flight DuckDuckGo probe --
+    the fleet now uses a paid Serper backend, so probing DDG directly would
+    measure the wrong thing). A record is flagged `search_degraded` when its
+    `subagent_errors` carry a search-failure marker, or its `fetches` count is
+    anomalous versus its peers **for the same task AND the same variant** in
+    the campaign (fetch counts are only comparable within one task -- a
+    lookup task legitimately fetches far less than a deep multi-turn one --
+    and within one variant -- a variant that fetches far fewer times BY
+    DESIGN, e.g. one that delegates fetching to collapse an F^2 term, is not
+    degraded, it is doing its job; comparing it against a different
+    variant's count would flag exactly the effect a campaign exists to
+    measure)."""
+
+    def test_deadline_exceeded_marker_flags_degraded(self):
+        r = {"task": "t", "fetches": 5,
+             "subagent_errors": [{"agent": "web_agent", "detail": "context deadline exceeded"}]}
+        campaign.mark_search_degraded(r, [r])
+        self.assertTrue(r["search_degraded"])
+        self.assertIn("deadline exceeded", r["degraded_reason"])
+
+    def test_marker_match_is_case_insensitive(self):
+        r = {"task": "t", "fetches": 5,
+             "subagent_errors": [{"agent": "web_agent", "detail": "HTTP 429 RATE LIMIT hit"}]}
+        campaign.mark_search_degraded(r, [r])
+        self.assertTrue(r["search_degraded"])
+
+    def test_no_results_marker_flags_degraded(self):
+        r = {"task": "t", "fetches": 0,
+             "subagent_errors": [{"agent": "web_agent", "detail": "search returned no results"}]}
+        campaign.mark_search_degraded(r, [r])
+        self.assertTrue(r["search_degraded"])
+
+    def test_clean_record_with_typical_fetches_is_not_degraded(self):
+        recs = [{"task": "t", "fetches": n, "subagent_errors": []} for n in (40, 45, 50, 55)]
+        for r in recs:
+            campaign.mark_search_degraded(r, recs)
+        self.assertTrue(all(not r["search_degraded"] for r in recs))
+        self.assertTrue(all(r["degraded_reason"] == "" for r in recs))
+
+    def test_fetch_collapse_versus_peers_flags_degraded(self):
+        recs = [{"task": "t", "fetches": n, "subagent_errors": []} for n in (40, 45, 50)]
+        collapsed = {"task": "t", "fetches": 1, "subagent_errors": []}
+        recs.append(collapsed)
+        campaign.mark_search_degraded(collapsed, recs)
+        self.assertTrue(collapsed["search_degraded"])
+        self.assertIn("fetches", collapsed["degraded_reason"])
+
+    def test_fetch_explosion_versus_peers_flags_degraded(self):
+        recs = [{"task": "t", "fetches": n, "subagent_errors": []} for n in (40, 45, 50)]
+        exploded = {"task": "t", "fetches": 300, "subagent_errors": []}
+        recs.append(exploded)
+        campaign.mark_search_degraded(exploded, recs)
+        self.assertTrue(exploded["search_degraded"])
+
+    def test_ordinary_1_5x_spread_between_identical_configs_is_not_flagged(self):
+        """Measured fact: two runs of the IDENTICAL configuration differed by
+        1.5x in fetches. That must not, by itself, read as degradation."""
+        a = {"task": "t", "fetches": 40, "subagent_errors": []}
+        b = {"task": "t", "fetches": 60, "subagent_errors": []}
+        c = {"task": "t", "fetches": 50, "subagent_errors": []}
+        for r in (a, b, c):
+            campaign.mark_search_degraded(r, [a, b, c])
+        self.assertFalse(a["search_degraded"])
+        self.assertFalse(b["search_degraded"])
+        self.assertFalse(c["search_degraded"])
+
+    def test_different_tasks_are_not_cross_compared(self):
+        """A lookup task's low fetch count must not be judged anomalous
+        against a deep task's much higher one just because they ran in the
+        same campaign."""
+        lookup = {"task": "web-lookup", "fetches": 3, "subagent_errors": []}
+        deep = {"task": "web-deep-ds7", "fetches": 80, "subagent_errors": []}
+        campaign.mark_search_degraded(lookup, [lookup, deep])
+        campaign.mark_search_degraded(deep, [lookup, deep])
+        self.assertFalse(lookup["search_degraded"])
+        self.assertFalse(deep["search_degraded"])
+
+    def test_different_variants_of_the_same_task_are_not_cross_compared(self):
+        """The design bug this pins: a variant that legitimately fetches far
+        FEWER times than the baseline, by design (e.g. it delegates fetching
+        to a one-step sub-agent specifically to collapse an F^2 term), must
+        not be flagged just because it looks anomalous next to a DIFFERENT
+        variant's count -- that would penalize exactly the effect a campaign
+        exists to measure. V0 has enough same-variant peers to judge itself;
+        V3 (only one sample here) has none of its own and so is left alone,
+        rather than being judged against V0's much higher count."""
+        v0_recs = [{"task": "t", "variant": "V0", "fetches": n, "subagent_errors": []}
+                   for n in (78, 80, 82)]
+        v3_rec = {"task": "t", "variant": "V3", "fetches": 5, "subagent_errors": []}
+        all_recs = v0_recs + [v3_rec]
+        for r in all_recs:
+            campaign.mark_search_degraded(r, all_recs)
+        self.assertFalse(v3_rec["search_degraded"],
+                          "V3 fetching far less than V0 is a variant effect, not degradation")
+        self.assertTrue(all(not r["search_degraded"] for r in v0_recs))
+
+    def test_no_same_task_peers_never_flags_on_fetch_count_alone(self):
+        r = {"task": "t", "fetches": 500, "subagent_errors": []}
+        campaign.mark_search_degraded(r, [r])
+        self.assertFalse(r["search_degraded"])
+
+    def test_missing_fetches_and_no_errors_is_not_degraded(self):
+        r = {"task": "t", "subagent_errors": []}
+        campaign.mark_search_degraded(r, [r])
+        self.assertFalse(r["search_degraded"])
+
+    def test_both_signals_are_combined_into_one_reason(self):
+        recs = [{"task": "t", "fetches": n, "subagent_errors": []} for n in (40, 45, 50)]
+        bad = {"task": "t", "fetches": 0,
+               "subagent_errors": [{"agent": "web_agent", "detail": "timeout after 30s"}]}
+        recs.append(bad)
+        campaign.mark_search_degraded(bad, recs)
+        self.assertTrue(bad["search_degraded"])
+        self.assertIn("timeout", bad["degraded_reason"])
+        self.assertIn("fetches", bad["degraded_reason"])
+
+
+class TestSpread(unittest.TestCase):
+    """Two runs of the IDENTICAL configuration were observed to differ 1.85x
+    in cost ($0.908 vs $1.682). A bare median hides that -- spread() reports
+    the range beside it."""
+
+    def test_computes_median_min_max_and_count(self):
+        recs = [{"total_cost_usd": 0.908}, {"total_cost_usd": 1.682}, {"total_cost_usd": 1.2}]
+        s = campaign.spread(recs, "total_cost_usd")
+        self.assertEqual(s["median"], 1.2)
+        self.assertEqual(s["min"], 0.908)
+        self.assertEqual(s["max"], 1.682)
+        self.assertEqual(s["n"], 3)
+
+    def test_ignores_records_missing_the_key(self):
+        recs = [{"total_cost_usd": 1.0}, {}, {"total_cost_usd": 3.0}]
+        s = campaign.spread(recs, "total_cost_usd")
+        self.assertEqual(s["n"], 2)
+        self.assertEqual(s["median"], 2.0)
+        self.assertEqual(s["min"], 1.0)
+        self.assertEqual(s["max"], 3.0)
+
+    def test_empty_list_is_all_none_and_zero_count(self):
+        s = campaign.spread([], "total_cost_usd")
+        self.assertIsNone(s["median"])
+        self.assertIsNone(s["min"])
+        self.assertIsNone(s["max"])
+        self.assertEqual(s["n"], 0)
+
+    def test_defaults_to_total_cost_usd(self):
+        recs = [{"total_cost_usd": 2.0}, {"total_cost_usd": 4.0}]
+        self.assertEqual(campaign.spread(recs)["median"], 3.0)
+
+
+class TestCampaignSummary(unittest.TestCase):
+    """Per-variant median/range/count, with search-degraded runs excluded from
+    the numbers but still counted (so the exclusion itself is visible)."""
+
+    def test_groups_by_variant_in_first_seen_order(self):
+        recs = [
+            {"variant": "V0", "total_cost_usd": 1.0, "search_degraded": False},
+            {"variant": "V1", "total_cost_usd": 0.5, "search_degraded": False},
+            {"variant": "V0", "total_cost_usd": 1.2, "search_degraded": False},
+        ]
+        out = campaign.campaign_summary(recs)
+        self.assertEqual([vid for vid, _ in out], ["V0", "V1"])
+        v0 = dict(out)["V0"]
+        self.assertEqual(v0["n"], 2)
+        self.assertEqual(v0["total"], 2)
+        self.assertEqual(v0["excluded"], 0)
+        self.assertEqual(v0["median"], 1.1)
+
+    def test_degraded_runs_are_excluded_from_the_median_but_counted(self):
+        recs = [
+            {"variant": "V0", "total_cost_usd": 1.0, "search_degraded": False},
+            {"variant": "V0", "total_cost_usd": 1.0, "search_degraded": False},
+            {"variant": "V0", "total_cost_usd": 99.0, "search_degraded": True},
+        ]
+        out = dict(campaign.campaign_summary(recs))
+        self.assertEqual(out["V0"]["n"], 2)
+        self.assertEqual(out["V0"]["total"], 3)
+        self.assertEqual(out["V0"]["excluded"], 1)
+        self.assertEqual(out["V0"]["median"], 1.0)
+        self.assertEqual(out["V0"]["max"], 1.0, "the degraded outlier must not skew the range")
+
+    def test_records_without_a_variant_are_ignored(self):
+        recs = [{"total_cost_usd": 1.0}, {"variant": "V0", "total_cost_usd": 2.0}]
+        out = dict(campaign.campaign_summary(recs))
+        self.assertEqual(list(out.keys()), ["V0"])
+
+    def test_all_degraded_variant_reports_zero_clean_runs(self):
+        recs = [{"variant": "V1", "total_cost_usd": 5.0, "search_degraded": True}]
+        out = dict(campaign.campaign_summary(recs))
+        self.assertEqual(out["V1"]["n"], 0)
+        self.assertEqual(out["V1"]["total"], 1)
+        self.assertIsNone(out["V1"]["median"])
+
+
 if __name__ == "__main__":
     unittest.main()

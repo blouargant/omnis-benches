@@ -36,9 +36,10 @@ python3 squad-bench/bench.py --suite --out runs.jsonl # append a JSON record per
 python3 squad-bench/bench.py --task search-single --json   # machine-readable only
 ```
 
-Flags: `--server`, `--token`, `--deadline <s>` (per-run cap, default 420),
-`--cwd <dir>` (override a task's working dir), `--keep` (don't delete the bench
-session), `--tasks <file>`.
+Flags: `--server`, `--token`, `--deadline <s>` (per-turn cap, default 420 —
+a multi-turn task gets `deadline` seconds for EACH turn, not for the whole
+run), `--cwd <dir>` (override a task's working dir), `--keep` (don't delete
+the bench session), `--tasks <file>`.
 
 ## The benchmarking loop (models × tasks)
 
@@ -99,6 +100,52 @@ instruction: one search at a time, stop as soon as found, hard cap on searches),
 re-run, and watch `subagent_tools` grep counts and `redispatches` drop. Prompts
 hardened against a dumb model tend to run even better on a smart one — so this is
 worth doing *before* reaching for a pricier tier.
+
+## Variant campaigns
+
+`campaign.py` runs several config variants against the same task suite and writes
+one JSON record per run, tagged with `variant` and `phase`.
+
+```bash
+set -a; . ./.env; set +a
+python3 squad-bench/campaign.py --variants V0,V1,V3,V3b --repeat 2 \
+    --tasks squad-bench/tasks-web.json --out campaign.jsonl
+```
+
+Variants live in `variants.json` and are applied over the omnis config API
+(`PUT /api/config/parsed/<section>` + `POST /api/config/reload`), always from the
+V0 snapshot so they never stack. Each apply is read back and **verified**; the
+campaign always **reverts** in a `finally` block and reports whether the revert
+round-tripped.
+
+**Variants are interleaved in time** (V0,V1,V3, V0,V1,V3 …) and V0 is run once
+before and once after the campaign as a **drift witness**. The web moves: running
+all of V0 then all of V3 would confuse page drift with variant effect. If the
+closing witness regressed in quality, or its median cost more than doubled, the
+campaign exits non-zero and its numbers must be discarded.
+
+**Every completed run is also checked for search-backend degradation**, post-hoc
+(not as a pre-flight probe — the fleet runs on a paid Serper backend, so probing
+e.g. DuckDuckGo directly would measure the wrong thing). A record is flagged
+`search_degraded` when either its `subagent_errors` contain a search-failure
+marker (`deadline exceeded`, `timeout`, `non-functional`, `rate limit`, `429`,
+`no results` — case-insensitive), or its `fetches` count sits more than 3x away
+from the median of its **same-task, same-variant** peers in the campaign (scoped
+to the same variant too, so a variant that legitimately fetches fewer times by
+design — e.g. one that delegates fetching to collapse an F² term — is never
+penalized for doing its job). Degraded records are kept in the JSONL (nothing is
+discarded) but excluded from the end-of-campaign medians; the exclusion count is
+printed alongside the numbers it affects.
+
+**The end-of-campaign summary always prints a median WITH its spread** — a
+min-max range and the run count, per variant — never a bare median or a bare
+"variant X is N% cheaper" without the ranges beside it. This is not cosmetic:
+two runs of the **identical** configuration were measured to differ by **1.85x
+in cost** ($0.908 vs $1.682) and **1.5x in fetches**, so a variant difference
+smaller than the observed spread is not evidence of anything. When a baseline
+(`V0`) is available, each other variant's line also notes whether its range
+overlaps the baseline's — an overlap means the two are not distinguishable from
+noise at this sample size.
 
 ## Notes / limits
 
