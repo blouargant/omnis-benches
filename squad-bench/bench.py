@@ -215,6 +215,45 @@ def prepare_cwd(task, override):
     return cwd or os.getcwd(), None
 
 
+def task_prompts(task):
+    """A task declares `prompts: [...]` (multi-turn) or `prompt` (single turn).
+
+    The costly turn in the DS7 trace was a follow-up — the leader already held
+    context — so reproducing that shape needs more than one POST on one session.
+    """
+    if task.get("prompts"):
+        return list(task["prompts"])
+    return [task["prompt"]]
+
+
+def run_one_turn(base, token, sid, prompt, m, agents, deadline):
+    """POST one prompt and fold its SSE stream into `m`. True once `done` seen.
+
+    `deadline` is per turn: a 3-turn task gets 3× the budget of a 1-turn task,
+    which keeps single-turn behaviour byte-identical to before.
+    """
+    t0 = time.time()
+    done = False
+    try:
+        resp = _req("POST", base, f"/api/sessions/{sid}/messages", token,
+                    {"prompt": prompt}, timeout=deadline)
+        done = consume(resp, m, agents, t0, deadline)
+    except (urllib.error.URLError, ConnectionError, TimeoutError):
+        pass
+    while not done and time.time() - t0 < deadline:
+        try:
+            resp = _req("GET", base,
+                        f"/api/sessions/{sid}/messages/stream?from={m['_seq']}",
+                        token, timeout=deadline)
+            if getattr(resp, "status", 200) == 204:
+                m["status"] = "done"
+                return True
+            done = consume(resp, m, agents, t0, deadline)
+        except (urllib.error.URLError, ConnectionError, TimeoutError):
+            time.sleep(1)
+    return done
+
+
 def run_task(base, token, task, agents, deadline, keep, cwd_override):
     cwd, tmp = prepare_cwd(task, cwd_override)
     sess = api("POST", base, "/api/sessions", token,
@@ -226,26 +265,15 @@ def run_task(base, token, task, agents, deadline, keep, cwd_override):
     m["cwd"] = cwd
     m["session_id"] = sid
     t0 = time.time()
-    done = False
-    try:
-        resp = _req("POST", base, f"/api/sessions/{sid}/messages", token,
-                    {"prompt": task["prompt"]}, timeout=deadline)
-        done = consume(resp, m, agents, t0, deadline)
-    except (urllib.error.URLError, ConnectionError, TimeoutError):
-        pass
-    # resilient reconnect for long / disconnected turns
-    while not done and time.time() - t0 < deadline:
-        try:
-            resp = _req("GET", base,
-                        f"/api/sessions/{sid}/messages/stream?from={m['_seq']}",
-                        token, timeout=deadline)
-            if getattr(resp, "status", 200) == 204:
-                done = True
-                m["status"] = "done"
-                break
-            done = consume(resp, m, agents, t0, deadline)
-        except (urllib.error.URLError, ConnectionError, TimeoutError):
-            time.sleep(1)
+    m["answers"] = []
+    done = True
+    m["prompts"] = task_prompts(task)
+    for prompt in m["prompts"]:
+        mark = len(m["_answer_parts"])
+        done = run_one_turn(base, token, sid, prompt, m, agents, deadline)
+        m["answers"].append("".join(m["_answer_parts"][mark:]).strip())
+        if not done:
+            break
     if not done:
         m["status"] = "timeout"
         try:
@@ -255,7 +283,7 @@ def run_task(base, token, task, agents, deadline, keep, cwd_override):
             pass
     m["wall_ms"] = int((time.time() - t0) * 1000)
     m["redispatches"] = sum(v - 1 for v in m["delegations"].values() if v > 1)
-    m["answer"] = "".join(m["_answer_parts"]).strip()
+    m["answer"] = "\n\n".join(a for a in m["answers"] if a).strip()
     m["total_cost_usd"] = round(sum(x["est_cost_usd"] for x in m["models"].values()), 6)
     m["correct"] = check_expect(task.get("expect"), m["answer"])
     for k in ("_answer_parts", "_seq"):

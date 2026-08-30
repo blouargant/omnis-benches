@@ -95,5 +95,23 @@ class TestQualityGate(unittest.TestCase):
         self.assertIsNone(scoring.quality_gate({}, ["whatever"])["quality_gate"])
 
 
+import bench
+
+
+class TestTaskPrompts(unittest.TestCase):
+    def test_single_prompt_becomes_a_one_element_list(self):
+        self.assertEqual(bench.task_prompts({"prompt": "hello"}), ["hello"])
+
+    def test_prompts_list_is_used_verbatim(self):
+        self.assertEqual(bench.task_prompts({"prompts": ["a", "b"]}), ["a", "b"])
+
+    def test_prompts_wins_over_prompt(self):
+        self.assertEqual(bench.task_prompts({"prompt": "x", "prompts": ["a"]}), ["a"])
+
+    def test_missing_both_raises(self):
+        with self.assertRaises(KeyError):
+            bench.task_prompts({})
+
+
 if __name__ == "__main__":
     unittest.main()
