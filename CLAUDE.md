@@ -65,7 +65,9 @@ tools — keep them in sync if you change the protocol handling.
 - Metrics per run: `wall_ms`/`ttfb_ms`, `token_events` (streaming granularity),
   `delegations`/`redispatches`, `leader_tools`/`subagent_tools`, per-agent
   `models` cost, `subagent_errors`, `ask_user` (want 0), `correct` (vs a task's
-  `expect` substring or `/regex/`). Tasks in `squad-bench/tasks.json`;
+  `expect` substring or `/regex/`), quality_gate / facts / forbidden_hits
+  (deterministic layer-1 scoring, see scoring.py), fetches / distinct_urls /
+  facts_per_fetch. Tasks in `squad-bench/tasks.json`;
   `cwd:"sandbox"` tasks run against a git-isolated temp copy of
   `squad-bench/sandbox/`.
 - **Tune prompts on weak models first.** A cheap model that "gets lost" is usually
@@ -73,6 +75,9 @@ tools — keep them in sync if you change the protocol handling.
   explicit stop conditions), reload, re-run, watch redispatches/over-search drop.
 - `tasks-kubernetes.json` + `README-kubernetes.md`: the k8s_editor/k8s_cleaner
   model-tier sweep (leaderless-solo-squad + models.json-override methodology).
+- Multi-turn tasks: a task may declare `prompts: [...]` instead of `prompt`;
+  answers land in `answers[]` and `facts` rules select a turn with `on: <index>`.
+- Unit tests: `python3 -m unittest discover -s squad-bench` (stdlib only).
 
 ## model-probe
 
@@ -170,8 +175,44 @@ then scoring with the task's `verify.sh` on an ephemeral kind cluster.
   non-scored setup error. It's usually transient (a warmed/reused cluster clears
   it); a real fix would add a `kubectl -n <ns> wait`/retry for the SA in the
   upstream `setup.sh`.
+- **`omnis-agent` leaks its spawned per-task server when the harness hard-kills it
+  on a task timeout.** Some gatekeeper tasks declare a short `timeout:` in their own
+  `task.yaml` (e.g. `allowed-reposv2`, `pod-disruption-budget` → `5m`; the harness
+  default is 10m). When the agent exceeds *that* limit, the harness SIGKILLs
+  `omnis-agent` **before** its own `OMNIS_BENCH_DEADLINE` (default 600s) and cleanup
+  path run — so the dedicated omnis-server it spawned (isolation-mode tasks) is
+  **orphaned** (reparented to systemd, still bound to the deleted task kubeconfig),
+  along with its `/tmp/omnis-kab-*` `OMNIS_HOME`. Symptom: the task's `results.yaml`
+  says `task timed out after 5m0s` and `log.txt` has **no `omnis-agent: usage`
+  footer** (so its cost is unaccounted). Harmless zombies (no Pass@k impact — each
+  task uses its own cluster/port), but they accumulate across runs. After a run,
+  sweep leftovers: `pgrep -af omnis-server` → kill any bound to `/tmp/omnis-kab-*`
+  (leave the dev `:8080` instance), then `rm -rf /tmp/omnis-kab-*`. A real fix would
+  put the child server in its own process group + a SIGTERM handler in `omnis-agent`,
+  and/or have `run.sh` `cleanup()` reap `omnis-kab-*` at end-of-run.
 - **Layer an omnis config override cheaply** via `OMNIS_HOME=<tmp>` holding just
   the file you want to override (e.g. `permissions.json`) — the chain picks it up
   above `/etc/omnis` while everything else falls through.
 - **Verify per-tier price / recorded model** in any model comparison; do not trust
   that a reload took effect.
+- **The ChapsVision gateway caches responses, so `--repeat N` does not sample
+  variance.** Replies carry `x-litellm-cache-key`, and two identical requests return
+  the *same* `chatcmpl-id` byte-for-byte (no `x-litellm-response-cost` header on a
+  hit). A bench task's prompt is fixed, so every repeat after the first replays the
+  cache: measured on `squad-bench --suite --repeat 2` over `balanced`, repeats ran
+  ~5× faster and ~40% cheaper, and both `search-single` repeats were rigorously
+  identical (101 `token_events`, $0.0123, same tool counts). **Only the first (cold)
+  sample is a measurement.** Tasks whose sub-agents pull external content
+  (`docs-lookup` → WebSearch/WebFetch) escape it, since the downstream prompts
+  differ. To sample for real, vary the prompt per run (nonce) or disable the cache
+  server-side. Same trap when probing a model endpoint by hand — a fixed prompt
+  replays an earlier verdict, which can turn a *fixed* endpoint into a false negative.
+- **A gateway alias can silently lose a capability its own `/model/info` advertises.**
+  LiteLLM 1.93 stripped `tools` from every `scaleway/*` route because the deployment
+  used the model id Scaleway exposes (`qwen3.6-35b-a3b`) while litellm's cost map keys
+  it vendor-prefixed (`scaleway/qwen/qwen3.6-35b-a3b`) — the miss reads as "no
+  function calling" and the param is dropped without a warning. Full diagnosis and the
+  JSON-only fix (cost-map `aliases`) in
+  `reports/gateway-balanced-tool-calling-2026-08-13.md`. Lesson for benching: when a
+  model suddenly "narrates instead of acting", run `model-probe` against the endpoint
+  **and** the same model direct at its provider before blaming the squad or the model.

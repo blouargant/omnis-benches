@@ -42,7 +42,7 @@ Usage
   # same task. The `models` block in each record captures which model was active.
 
 Env / flags: --server (default http://127.0.0.1:8080), --token (or
-OMNIS_SERVER_TOKEN), --deadline seconds (default 420), --keep (don't delete the
+OMNIS_SERVER_TOKEN), --deadline seconds per turn (default 420), --keep (don't delete the
 session), --cwd (override task cwd).
 """
 import argparse
@@ -57,6 +57,8 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+
+import scoring
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -121,6 +123,7 @@ def fresh():
         "answer": "",
         "_answer_parts": [],
         "_seq": 0,
+        "_urls": set(),
     }
 
 
@@ -143,6 +146,25 @@ def note_model(m, u):
         + (u.get("cache_read_tokens") or 0) * crp, 6)
 
 
+def _note_url(m, args):
+    """Record a URL a tool was asked to fetch, so source coverage can be
+    compared across variants. Answers barely cite URLs (0/0/1 across the DS7
+    trace), so the answer text is useless for this — the tool args are not."""
+    if not isinstance(args, dict):
+        return
+    u = args.get("url") or args.get("URL")
+    if isinstance(u, str) and u.startswith(("http://", "https://")):
+        m["_urls"].add(u)
+
+
+def fetch_count(m):
+    """WebFetch calls across the leader and every sub-agent."""
+    n = m["leader_tools"].get("WebFetch", 0)
+    for tools in m["subagent_tools"].values():
+        n += tools.get("WebFetch", 0)
+    return n
+
+
 def consume(resp, m, agents, t0, deadline):
     """Fold an SSE stream into m. Return True once a `done` frame is seen."""
     for seq, ev, d in iter_sse(resp):
@@ -162,11 +184,13 @@ def consume(resp, m, agents, t0, deadline):
                 m["delegations"][name] = m["delegations"].get(name, 0) + 1
             else:
                 m["leader_tools"][name] = m["leader_tools"].get(name, 0) + 1
+            _note_url(m, d.get("args"))
         elif ev == "agent_tool_call":
             a = d.get("agent") or "?"
             t = d.get("name") or "?"
             m["subagent_tools"].setdefault(a, {})
             m["subagent_tools"][a][t] = m["subagent_tools"][a].get(t, 0) + 1
+            _note_url(m, d.get("args"))
         elif ev == "tool_result":
             _scan_subagent_result(m, d, agents)
         elif ev == "turn_usage":
@@ -286,7 +310,12 @@ def run_task(base, token, task, agents, deadline, keep, cwd_override):
     m["answer"] = "\n\n".join(a for a in m["answers"] if a).strip()
     m["total_cost_usd"] = round(sum(x["est_cost_usd"] for x in m["models"].values()), 6)
     m["correct"] = check_expect(task.get("expect"), m["answer"])
-    for k in ("_answer_parts", "_seq"):
+    m.update(scoring.quality_gate(task, m["answers"]))
+    m["distinct_urls"] = len(m["_urls"])
+    m["fetches"] = fetch_count(m)
+    m["facts_per_fetch"] = (round(len(m["facts"]["found"]) / m["fetches"], 3)
+                            if m["fetches"] else None)
+    for k in ("_answer_parts", "_seq", "_urls"):
         m.pop(k, None)
     if not keep and sid:
         try:
@@ -329,6 +358,12 @@ def summarize(m):
         print(f"  ⚠ sub-agent errors ({len(m['subagent_errors'])}):")
         for e in m["subagent_errors"][:3]:
             print(f"      {e['agent']}: {e['detail']}")
+    gate = {True: "PASS", False: "FAIL", None: "n/a"}[m.get("quality_gate")]
+    f = m.get("facts") or {}
+    print(f"  quality_gate={gate}  facts={len(f.get('found', []))}/{f.get('required', 0)}"
+          f"  missing={f.get('missing') or '-'}  forbidden={m.get('forbidden_hits') or '-'}")
+    print(f"  fetches={m.get('fetches')}  distinct_urls={m.get('distinct_urls')}"
+          f"  facts_per_fetch={m.get('facts_per_fetch')}")
     ans = (m["answer"] or "").replace("\n", " ")
     print(f"  answer: {ans[:180]}")
 
@@ -341,7 +376,7 @@ def main():
     ap.add_argument("--task", help="run a single task by id")
     ap.add_argument("--suite", action="store_true", help="run every task in the file")
     ap.add_argument("--repeat", type=int, default=1, help="samples per task")
-    ap.add_argument("--deadline", type=int, default=420, help="per-run wall-clock cap (s)")
+    ap.add_argument("--deadline", type=int, default=420, help="per-turn wall-clock cap (s)")
     ap.add_argument("--cwd", help="override the task working directory")
     ap.add_argument("--keep", action="store_true", help="don't delete the bench session")
     ap.add_argument("--out", help="append one JSON record per run to this file")

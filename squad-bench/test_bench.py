@@ -113,5 +113,32 @@ class TestTaskPrompts(unittest.TestCase):
             bench.task_prompts({})
 
 
+class TestFetchCount(unittest.TestCase):
+    def test_sums_leader_and_subagent_webfetch(self):
+        m = {"leader_tools": {"WebFetch": 2, "Read": 9},
+             "subagent_tools": {"web_agent": {"WebFetch": 5, "WebSearch": 3},
+                                "summariser": {"WebFetch": 1}}}
+        self.assertEqual(bench.fetch_count(m), 8)
+
+    def test_zero_when_nothing_fetched(self):
+        self.assertEqual(bench.fetch_count({"leader_tools": {}, "subagent_tools": {}}), 0)
+
+
+class TestNoteUrl(unittest.TestCase):
+    def test_records_http_urls_only(self):
+        m = {"_urls": set()}
+        bench._note_url(m, {"url": "https://example.com/a"})
+        bench._note_url(m, {"url": "file:///etc/passwd"})
+        bench._note_url(m, {"pattern": "not a url"})
+        bench._note_url(m, None)
+        self.assertEqual(m["_urls"], {"https://example.com/a"})
+
+    def test_deduplicates(self):
+        m = {"_urls": set()}
+        bench._note_url(m, {"url": "https://example.com/a"})
+        bench._note_url(m, {"url": "https://example.com/a"})
+        self.assertEqual(len(m["_urls"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

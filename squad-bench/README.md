@@ -70,6 +70,11 @@ weak models" below): change the agent's `instruction.md`, reload/reinstall, re-r
 | `subagent_errors` | sub-agent results that were empty or carried an error (`deadline exceeded`, `timeout`, `"error"`) |
 | `ask_user` | # of permission prompts (want **0** for a squad whose read-only members are allow-listed) |
 | `correct` | if the task has `expect`, whether the final answer matched |
+| `quality_gate` | layer-1 verdict: every `required` fact found **and** no `forbidden` rule hit. `null` when the task declares neither. |
+| `facts` | `{found[], missing[], required, optional_found[]}` from the task's `facts` list |
+| `forbidden_hits` | ids of `forbidden` rules violated (a match carrying its `unless` hedge is not a violation) |
+| `fetches` / `distinct_urls` | `WebFetch` calls, and how many distinct URLs were fetched — an **efficiency** signal (same facts with fewer fetches is strictly better), not a quality one |
+| `facts_per_fetch` | `len(facts.found) / fetches` |
 
 ## Tasks
 
