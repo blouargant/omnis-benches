@@ -230,5 +230,88 @@ class TestSwitcherApplyResetsToBaseline(unittest.TestCase):
             )
 
 
+class TestNoteModelCacheBilling(unittest.TestCase):
+    """note_model's cost estimate. `prompt_tokens` follows the OpenAI usage
+    convention and already INCLUDES `cache_read_tokens` as a subset, not an
+    addition. Billing the full `prompt_tokens` at the input price AND
+    `cache_read_tokens` at the cache-read price double-charges the cached
+    portion. Correct: the uncached remainder (prompt - cache_read, clamped at
+    zero) pays the input price; cache_read pays the (usually much cheaper)
+    cache-read price; output pays the output price."""
+
+    def test_cache_hit_is_not_double_charged(self):
+        """Real recorded record: 182311 prompt / 153089 cache-read (84% hit) /
+        3052 output at ChapsVision Premium prices ($3.15/$15.75/$0.30 per M).
+        The broken formula (prompt_tokens AND cache_read_tokens both billed in
+        full) reads ~$0.668; the correct figure is ~$0.186."""
+        m = bench.fresh()
+        bench.note_model(m, {
+            "agent": "web_agent",
+            "prompt_tokens": 182311,
+            "output_tokens": 3052,
+            "cache_read_tokens": 153089,
+            "in_price_per_m": 3.15,
+            "out_price_per_m": 15.75,
+            "cache_read_price_per_m": 0.30,
+        })
+        cost = m["models"]["web_agent"]["est_cost_usd"]
+        self.assertAlmostEqual(cost, 0.186045, places=5)
+        self.assertLess(cost, 0.4, "must not land anywhere near the broken $0.668 figure")
+
+    def test_no_cache_path_is_unchanged(self):
+        """cache_read_tokens == 0 (every web_agent record in practice today) must
+        produce exactly the pre-fix formula: prompt*in + out*out — the
+        backward-compatibility guarantee for the non-caching majority of records."""
+        m = bench.fresh()
+        bench.note_model(m, {
+            "agent": "leader",
+            "prompt_tokens": 50000,
+            "output_tokens": 1200,
+            "cache_read_tokens": 0,
+            "in_price_per_m": 5.0,
+            "out_price_per_m": 25.0,
+            "cache_read_price_per_m": 0.5,
+        })
+        e = m["models"]["leader"]
+        expected = round(50000 * 5.0 / 1e6 + 1200 * 25.0 / 1e6, 6)
+        self.assertEqual(e["est_cost_usd"], expected)
+
+    def test_accumulates_across_calls(self):
+        """note_model is called once per model call and must SUM across calls,
+        not overwrite — both the raw counters and the cost estimate."""
+        m = bench.fresh()
+        prices = {"in_price_per_m": 2.0, "out_price_per_m": 10.0, "cache_read_price_per_m": 0.5}
+        bench.note_model(m, dict(agent="a", prompt_tokens=1000, output_tokens=100,
+                                  cache_read_tokens=400, **prices))
+        bench.note_model(m, dict(agent="a", prompt_tokens=2000, output_tokens=200,
+                                  cache_read_tokens=1500, **prices))
+        e = m["models"]["a"]
+        self.assertEqual(e["prompt_tok"], 3000)
+        self.assertEqual(e["cache_read_tok"], 1900)
+        self.assertEqual(e["out_tok"], 300)
+        self.assertEqual(e["calls"], 2)
+        cost1 = (600 * 2.0 + 400 * 0.5 + 100 * 10.0) / 1e6
+        cost2 = (500 * 2.0 + 1500 * 0.5 + 200 * 10.0) / 1e6
+        self.assertAlmostEqual(e["est_cost_usd"], cost1 + cost2, places=6)
+
+    def test_cache_read_over_prompt_tokens_is_clamped_not_negative(self):
+        """Defensive: if a provider ever reports cache_read_tokens > prompt_tokens,
+        (prompt - cache_read) must clamp at zero rather than produce a
+        silently negative charge."""
+        m = bench.fresh()
+        bench.note_model(m, {
+            "agent": "odd",
+            "prompt_tokens": 100,
+            "output_tokens": 10,
+            "cache_read_tokens": 150,
+            "in_price_per_m": 10.0,
+            "out_price_per_m": 20.0,
+            "cache_read_price_per_m": 1.0,
+        })
+        cost = m["models"]["odd"]["est_cost_usd"]
+        self.assertGreaterEqual(cost, 0.0)
+        self.assertAlmostEqual(cost, (150 * 1.0 + 10 * 20.0) / 1e6, places=6)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -65,7 +65,7 @@ weak models" below): change the agent's `instruction.md`, reload/reinstall, re-r
 | `redispatches` | # of times the leader called the **same** sub-agent again (retry / flailing) |
 | `leader_tools` | `{tool: count}` the leader ran directly |
 | `subagent_tools` | `{agent: {tool: count}}` each sub-agent ran internally (e.g. a scout doing 12 greps = over-searching) |
-| `models` | `{agent: {in$/M, out$/M, prompt_tok, out_tok, calls, est_cost_usd}}` |
+| `models` | `{agent: {in$/M, out$/M, prompt_tok, out_tok, cache_read_tok, calls, est_cost_usd}}` — see the cache-billing note below |
 | `total_cost_usd` | summed estimate across all agents in the turn |
 | `subagent_errors` | sub-agent results that were empty or carried an error (`deadline exceeded`, `timeout`, `"error"`) |
 | `ask_user` | # of permission prompts (want **0** for a squad whose read-only members are allow-listed) |
@@ -106,5 +106,26 @@ worth doing *before* reaching for a pricier tier.
   distributions, not single numbers.
 - Costs are **estimates** from the per-model prices in `models.json` (the same
   numbers the web UI shows), not a provider invoice.
+- **Cached tokens are billed once, at the cache-read price — never double-charged.**
+  `prompt_tokens` follows the OpenAI usage convention and already **includes**
+  `cache_read_tokens` as a subset, not an addition (`cache_read_tokens` is a
+  sub-field of the same usage record `prompt_tokens` comes from). `note_model`
+  therefore bills only the *uncached* remainder (`prompt_tok - cache_read_tok`,
+  clamped at zero) at the full input price; `cache_read_tok` pays the (usually
+  much cheaper) cache-read price; `out_tok` pays the output price. Billing the
+  full `prompt_tokens` **and** `cache_read_tokens` both at their own price — the
+  pre-fix behaviour — double-charges the cached portion.
+- **JSONL records written before this fix carry an inflated `est_cost_usd` /
+  `total_cost_usd`** for any agent whose `cache_read_tok` is non-zero (a
+  record with `cache_read_tok: 0` is unaffected and needs no correction).
+  Existing files under `reports/` and any run captured before this change are
+  affected and are **not** modified by it. Such a record can be recomputed from
+  its own retained fields — for each agent in its `models` block:
+  `uncached = max(0, prompt_tok - cache_read_tok)`;
+  `corrected_cost = uncached*in_per_m/1e6 + cache_read_tok*cache_read_price_per_m/1e6 + out_tok*out_per_m/1e6`
+  (the record does not persist `cache_read_price_per_m` per agent today, so
+  recomputing a specific old record needs that price looked up from the
+  `models.json` version active at the time it was captured). Do not treat a
+  pre-fix and a post-fix record as directly comparable for a caching agent.
 - Endpoint latency (e.g. the `simple` 310 s outlier) is a property of the gateway
   deployment, not of omnis — but it's exactly what you want a benchmark to catch.

@@ -132,18 +132,28 @@ def note_model(m, u):
     e = m["models"].setdefault(
         a, {"in_per_m": u.get("in_price_per_m"), "out_per_m": u.get("out_price_per_m"),
             "prompt_tok": 0, "out_tok": 0, "cache_read_tok": 0, "calls": 0, "est_cost_usd": 0.0})
-    e["prompt_tok"] += u.get("prompt_tokens") or 0
+    prompt_tokens = u.get("prompt_tokens") or 0
+    cache_read_tokens = u.get("cache_read_tokens") or 0
+    e["prompt_tok"] += prompt_tokens
     e["out_tok"] += u.get("output_tokens") or 0
-    e["cache_read_tok"] += u.get("cache_read_tokens") or 0
+    e["cache_read_tok"] += cache_read_tokens
     e["calls"] += 1
     inp = (u.get("in_price_per_m") or 0) / 1e6
     outp = (u.get("out_price_per_m") or 0) / 1e6
     crp = (u.get("cache_read_price_per_m") or 0) / 1e6
+    # prompt_tokens (OpenAI usage convention) already INCLUDES cache_read_tokens
+    # as a subset, not an addition -- billing both the full prompt count at the
+    # input price AND cache_read_tokens at the cache-read price double-charges
+    # the cached portion. Only the uncached remainder pays the full input price;
+    # cache_read_tokens pay the (usually much cheaper) cache-read price. Clamp
+    # at zero defensively: a provider report where cache_read > prompt would
+    # otherwise go negative.
+    uncached_tokens = max(0, prompt_tokens - cache_read_tokens)
     e["est_cost_usd"] = round(
         e["est_cost_usd"]
-        + (u.get("prompt_tokens") or 0) * inp
-        + (u.get("output_tokens") or 0) * outp
-        + (u.get("cache_read_tokens") or 0) * crp, 6)
+        + uncached_tokens * inp
+        + cache_read_tokens * crp
+        + (u.get("output_tokens") or 0) * outp, 6)
 
 
 def _note_url(m, args):

@@ -77,6 +77,23 @@ tools — keep them in sync if you change the protocol handling.
   model-tier sweep (leaderless-solo-squad + models.json-override methodology).
 - Multi-turn tasks: a task may declare `prompts: [...]` instead of `prompt`;
   answers land in `answers[]` and `facts` rules select a turn with `on: <index>`.
+- **`est_cost_usd` billing is cache-aware — cached tokens are never double-charged.**
+  `prompt_tok` follows the OpenAI usage convention and already **includes**
+  `cache_read_tok` as a subset, not an addition, so `note_model` bills only the
+  uncached remainder (`prompt_tok - cache_read_tok`, clamped at zero) at the full
+  input price; `cache_read_tok` pays the (usually much cheaper) cache-read price;
+  `out_tok` pays the output price. Billing the full `prompt_tok` **and**
+  `cache_read_tok` both at their own price (the pre-fix formula) double-charges
+  the cached portion — verified regression: an 84%-cache-hit agent
+  (182311 prompt / 153089 cache-read / 3052 output) read **$0.668** instead of
+  the correct **$0.186**. Any JSONL record captured **before** this fix carries
+  an inflated `est_cost_usd`/`total_cost_usd` for an agent with non-zero
+  `cache_read_tok` (zero-cache agents, e.g. every `web_agent` record, are
+  unaffected); it can be recomputed from the record's own retained
+  `prompt_tok`/`cache_read_tok`/`out_tok` (plus the `cache_read_price_per_m`
+  from the `models.json` active when it was captured, since the record doesn't
+  persist that price per agent). Do not compare a pre-fix and post-fix record
+  for a caching agent as if they were on the same scale.
 - Unit tests: `python3 -m unittest discover -s squad-bench` (stdlib only).
 
 ## model-probe
