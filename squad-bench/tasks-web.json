@@ -1,0 +1,46 @@
+{
+  "_comment": "Web-research cost protocol — see omnis docs/superpowers/specs/2026-08-30-web-agent-cost-protocol-design.md. Three shapes are the validity floor: lookup (D must pay off), deep multi-turn (A/B must pay off), canary (must FAIL if a variant truncates). `facts`/`forbidden` are scored by scoring.py; `on` is a turn index into answers[].",
+  "tasks": [
+    {
+      "id": "web-lookup",
+      "squad": "knowledge",
+      "kind": "web",
+      "prompt": "En France, quelle est la durée de validité d'un contrôle technique automobile pour une voiture particulière ?",
+      "facts": [
+        {"id": "duration", "on": 0, "required": true, "match": "/2\\s*ans|deux\\s*ans/"}
+      ],
+      "notes": "Lookup tier: one search away, stable regulation, and French-bound so it also exercises the search-language rule. This is the task V4 (depth-ladder gating) must make cheaper WITHOUT losing the fact. A high fetches count here is itself the defect."
+    },
+    {
+      "id": "web-deep-ds7",
+      "squad": "knowledge",
+      "kind": "web",
+      "prompts": [
+        "Sur une DS7 de 2018 la trappe a essence n'est jamais verrouillée, est-ce que c'est normal ?",
+        "combien coûte le remplacement de l'actuateur ?",
+        "donne moi les références de la pièce neuve et d'occasion."
+      ],
+      "facts": [
+        {"id": "actuator",   "on": 0, "required": true,  "match": "/actuateur|actionneur/"},
+        {"id": "price-new",  "on": 1, "required": true,  "match": "/[5-9][0-9]\\s*(€|euros)/"},
+        {"id": "oem",        "on": 2, "required": true,  "match": "/9820772380/"},
+        {"id": "caveat",     "on": 2, "required": true,  "match": "/à vérifier|non confirm|indicatif|concessionnaire/"},
+        {"id": "price-used", "on": 1, "required": false, "match": "/39\\s*(€|euros)/"}
+      ],
+      "forbidden": [
+        {"id": "ref-as-fact", "on": 2, "match": "/9831776780/", "unless": "/non confirm|à vérifier|pourrait|obsolète/"}
+      ],
+      "notes": "Verbatim replay of conversation_fitting-eagle.json — the trace that cost $2.87, of which web_agent was $2.5157 (9.4M prompt / 45k output tokens). GROUND TRUTH IS NOT INDEPENDENT: these references come from omnis itself and must be confirmed once by hand. Until then this task measures consistency against the baseline, not correctness."
+    },
+    {
+      "id": "web-canary",
+      "squad": "knowledge",
+      "kind": "web",
+      "prompt": "D'après la page Wikipédia du DS 7 Crossback, quel est son empattement, en millimètres ?",
+      "facts": [
+        {"id": "buried-fact", "on": 0, "required": true, "match": "/2[\\s,.]?738/"}
+      ],
+      "notes": "TRUNCATION CANARY. Source pinned: https://fr.wikipedia.org/wiki/DS_7_Crossback; the fact (empattement = 2 738 mm) sits at character offset ~13340 of the extracted page text (regex-stripped HTML, whitespace-collapsed; recurs at 11250 and 18992) — past ~9k (so a tighter shaper cap loses it) and before ~30k (so the current 32k cap reaches it). Page measured at 39329 chars total. If this task starts failing on the BASELINE, the page changed: re-run the calibration in the plan's Task 4 Step 1 before trusting any campaign result."
+    }
+  ]
+}
