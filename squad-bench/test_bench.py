@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Unit tests for squad-bench pure logic. Run: python3 -m unittest discover -s squad-bench"""
+import contextlib
 import copy
+import json
 import os
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -364,6 +367,70 @@ class TestDriftOk(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("cost", why.lower())
 
+    def test_observation_count_collapse_voids_a_non_gating_task(self):
+        """web-deep-ds7 declares only OPTIONAL facts, so quality_gate is
+        unconditionally True and can never itself flip False -- the
+        observation count (facts.optional_found) is the only signal
+        available for it. Measured on this exact task: a healthy answer
+        yields 5 observations; three separately captured degraded-search
+        runs yielded 1, 2, and 3 (see tasks-web.json's web-deep-ds7 notes).
+        A drop from 5 to 2 is well past the >2x threshold."""
+        first = [{"task": "web-deep-ds7", "quality_gate": True, "total_cost_usd": 1.0,
+                  "facts": {"required": 0, "optional_found": ["a", "b", "c", "d", "e"]}}]
+        last = [{"task": "web-deep-ds7", "quality_gate": True, "total_cost_usd": 1.0,
+                 "facts": {"required": 0, "optional_found": ["a", "b"]}}]
+        ok, why = campaign.drift_ok(first, last)
+        self.assertFalse(ok)
+        self.assertIn("web-deep-ds7", why)
+        self.assertIn("observation", why.lower())
+
+    def test_observation_count_dropping_by_less_than_half_is_not_flagged(self):
+        """Measured calib run3 on web-deep-ds7: 3 of 5 observations survived
+        under degraded search and that run was still judged acceptable --
+        a drop that stays above the >2x threshold must not void."""
+        first = [{"task": "web-deep-ds7", "quality_gate": True, "total_cost_usd": 1.0,
+                  "facts": {"required": 0, "optional_found": ["a", "b", "c", "d", "e"]}}]
+        last = [{"task": "web-deep-ds7", "quality_gate": True, "total_cost_usd": 1.0,
+                 "facts": {"required": 0, "optional_found": ["a", "b", "c"]}}]
+        ok, _ = campaign.drift_ok(first, last)
+        self.assertTrue(ok)
+
+    def test_pooled_median_would_have_missed_a_single_task_cost_blowup(self):
+        """This pins the CRITICAL fix: with 3 witness records, a pooled
+        median of [0.1, 0.2, 0.5] -> [0.1, 0.2, 3.0] is UNCHANGED (0.2 both
+        times) even though one task's cost went up 6x -- the median simply
+        picks the middle-ranked value and never looks at the outlier. The
+        per-task check must catch it regardless of what the other two tasks
+        did."""
+        first = [
+            {"task": "web-canary", "quality_gate": True, "total_cost_usd": 0.1},
+            {"task": "web-lookup", "quality_gate": True, "total_cost_usd": 0.2},
+            {"task": "web-deep-ds7", "quality_gate": True, "total_cost_usd": 0.5,
+             "facts": {"required": 0, "optional_found": ["a", "b", "c", "d", "e"]}},
+        ]
+        last = [
+            {"task": "web-canary", "quality_gate": True, "total_cost_usd": 0.1},
+            {"task": "web-lookup", "quality_gate": True, "total_cost_usd": 0.2},
+            {"task": "web-deep-ds7", "quality_gate": True, "total_cost_usd": 3.0,
+             "facts": {"required": 0, "optional_found": ["a", "b", "c", "d", "e"]}},
+        ]
+        # Confirm the premise: pooling really would have hidden this.
+        pooled_first = campaign.median([r["total_cost_usd"] for r in first])
+        pooled_last = campaign.median([r["total_cost_usd"] for r in last])
+        self.assertEqual(pooled_first, pooled_last, "the pooled median must look unchanged")
+
+        ok, why = campaign.drift_ok(first, last)
+        self.assertFalse(ok)
+        self.assertIn("web-deep-ds7", why)
+        self.assertIn("cost", why.lower())
+
+    def test_a_task_missing_from_one_witness_pass_is_skipped_not_raised(self):
+        first = [{"task": "web-canary", "quality_gate": True, "total_cost_usd": 0.1},
+                 {"task": "web-lookup", "quality_gate": True, "total_cost_usd": 0.2}]
+        last = [{"task": "web-canary", "quality_gate": True, "total_cost_usd": 0.1}]
+        ok, _ = campaign.drift_ok(first, last)
+        self.assertTrue(ok)
+
 
 class TestSearchDegradation(unittest.TestCase):
     """Post-hoc degradation detector (replaces a pre-flight DuckDuckGo probe --
@@ -558,6 +625,158 @@ class TestCampaignSummary(unittest.TestCase):
         self.assertEqual(out["V1"]["n"], 0)
         self.assertEqual(out["V1"]["total"], 1)
         self.assertIsNone(out["V1"]["median"])
+
+
+class _FakeSwitcher:
+    """Records apply/verify/revert calls against an in-memory catalog --
+    NEVER touches a real server or config. Installed in place of
+    `variants.Switcher` for the duration of one `TestCampaignMain` test."""
+
+    def __init__(self, verify_fails_for=(), revert_mismatch=None):
+        self.applied = []
+        self.verified = []
+        self.reverted = False
+        self._verify_fails_for = set(verify_fails_for)
+        self._revert_mismatch = list(revert_mismatch or [])
+
+    def snapshot(self):
+        return {}
+
+    def apply(self, variant):
+        self.applied.append(variant.get("id"))
+
+    def verify(self, variant):
+        vid = variant.get("id")
+        self.verified.append(vid)
+        return ["mismatch"] if vid in self._verify_fails_for else []
+
+    def revert(self):
+        self.reverted = True
+        return list(self._revert_mismatch)
+
+
+def _fake_squads_api(method, base, path, token, body=None, timeout=60):
+    if path == "/api/squads":
+        return {"squads": [{"name": "x", "leader": "leader", "members": ["agent"]}]}
+    return {}
+
+
+def _fake_campaign_record(task_id, total_cost_usd=0.1, quality_gate=True, optional_found=None):
+    """A minimally-complete bench.run_task()-shaped record: enough for
+    bench.summarize() and campaign.py's own drift/degradation/summary logic
+    to run without crashing, with no real server involved."""
+    m = bench.fresh()
+    m.update({
+        "task": task_id, "squad": "x", "status": "done", "wall_ms": 100,
+        "redispatches": 0, "answer": "", "answers": [], "correct": None,
+        "total_cost_usd": total_cost_usd, "quality_gate": quality_gate,
+        "facts": {"found": [], "missing": [], "required": 0,
+                  "optional_found": list(optional_found or [])},
+        "forbidden_hits": [], "distinct_urls": 0, "fetches": 0,
+        "facts_per_fetch": None,
+    })
+    for k in ("_answer_parts", "_seq", "_urls"):
+        m.pop(k, None)
+    return m
+
+
+_FAKE_CATALOG = {
+    "V0": {"id": "V0", "label": "baseline", "patches": []},
+    "V1": {"id": "V1", "label": "variant one", "patches": []},
+}
+
+
+class TestCampaignMain(unittest.TestCase):
+    """Exercises campaign.main()'s control flow -- the revert guarantee, the
+    verify-abort, and the exit codes -- end-to-end with FAKES standing in
+    for `variants.Switcher` and `bench.run_task`. NEVER touches a live
+    server or applies a real config change: a real campaign may be queued
+    against the running server and must not be disturbed by these tests."""
+
+    def setUp(self):
+        fd, self.tasks_path = tempfile.mkstemp(suffix=".json")
+        with os.fdopen(fd, "w") as f:
+            json.dump({"tasks": [{"id": "t1", "squad": "x", "prompt": "hi"}]}, f)
+
+    def tearDown(self):
+        os.remove(self.tasks_path)
+
+    def _run_main(self, fake_sw, fake_run_task, argv_extra=()):
+        argv = ["campaign.py", "--tasks", self.tasks_path, "--repeat", "1", *argv_extra]
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(variants, "Switcher",
+                                                   lambda base, token: fake_sw))
+            stack.enter_context(mock.patch.object(variants, "load_variants",
+                                                   lambda path: _FAKE_CATALOG))
+            stack.enter_context(mock.patch.object(bench, "api", _fake_squads_api))
+            stack.enter_context(mock.patch.object(bench, "run_task", fake_run_task))
+            stack.enter_context(mock.patch.object(sys, "argv", argv))
+            campaign.main()
+
+    def test_a_failing_verify_aborts_before_running_the_variants_tasks(self):
+        calls = []
+
+        def fake_run_task(base, token, task, agents, deadline, keep, cwd_override):
+            calls.append(task["id"])
+            return _fake_campaign_record(task["id"])
+
+        fake_sw = _FakeSwitcher(verify_fails_for={"V1"})
+        with self.assertRaises(SystemExit) as cm:
+            self._run_main(fake_sw, fake_run_task, argv_extra=["--variants", "V1"])
+        self.assertIn("did not apply cleanly", str(cm.exception.code))
+        # Only the V0 opening witness's task ran; V1's own tasks were never
+        # attempted because verify() failed first.
+        self.assertEqual(calls, ["t1"])
+        self.assertTrue(fake_sw.reverted, "the finally block must still revert")
+
+    def test_revert_runs_even_when_the_campaign_body_raises(self):
+        def raising_run_task(base, token, task, agents, deadline, keep, cwd_override):
+            raise RuntimeError("boom")
+
+        fake_sw = _FakeSwitcher()
+        with self.assertRaises(RuntimeError):
+            self._run_main(fake_sw, raising_run_task)
+        self.assertTrue(fake_sw.reverted, "revert must run even on an unexpected crash")
+
+    def test_revert_mismatch_produces_a_distinct_nonzero_exit_code(self):
+        def fake_run_task(base, token, task, agents, deadline, keep, cwd_override):
+            return _fake_campaign_record(task["id"])
+
+        fake_sw = _FakeSwitcher(
+            revert_mismatch=["agent.web_agent.max_instances is 4, expected 10"])
+        with self.assertRaises(SystemExit) as cm:
+            self._run_main(fake_sw, fake_run_task)
+        self.assertEqual(cm.exception.code, 3,
+                          "a failed revert must exit with a code distinct from drift-void (2)")
+        self.assertTrue(fake_sw.reverted)
+
+    def test_successful_campaign_with_stable_witnesses_exits_zero(self):
+        def fake_run_task(base, token, task, agents, deadline, keep, cwd_override):
+            return _fake_campaign_record(task["id"], total_cost_usd=0.1, quality_gate=True)
+
+        fake_sw = _FakeSwitcher()
+        with self.assertRaises(SystemExit) as cm:
+            self._run_main(fake_sw, fake_run_task)
+        self.assertEqual(cm.exception.code, 0)
+        self.assertTrue(fake_sw.reverted)
+
+    def test_observation_count_collapse_voids_the_campaign_via_main(self):
+        """End-to-end proof the CRITICAL fix is wired into main(), not just
+        into drift_ok() in isolation: the opening witness sees 5 optional
+        facts, the closing witness sees 1, and the campaign must exit 2."""
+        call_count = {"n": 0}
+
+        def fake_run_task(base, token, task, agents, deadline, keep, cwd_override):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return _fake_campaign_record(task["id"], optional_found=["a", "b", "c", "d", "e"])
+            return _fake_campaign_record(task["id"], optional_found=["a"])
+
+        fake_sw = _FakeSwitcher()
+        with self.assertRaises(SystemExit) as cm:
+            self._run_main(fake_sw, fake_run_task)
+        self.assertEqual(cm.exception.code, 2)
+        self.assertTrue(fake_sw.reverted)
 
 
 if __name__ == "__main__":

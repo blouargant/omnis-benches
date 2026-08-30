@@ -97,7 +97,33 @@ tools — keep them in sync if you change the protocol handling.
   for a caching agent as if they were on the same scale.
 - `campaign.py` — interleaved multi-variant campaigns with a V0 drift witness;
   `variants.py`/`variants.json` apply config variants over the HTTP API (verified
-  apply, checked revert). Two things beyond the base campaign loop:
+  apply, checked revert). Several things beyond the base campaign loop:
+  - **`drift_ok` compares the opening/closing witness PER TASK, never pooled
+    through one median.** Pooling is blind exactly where it matters:
+    `web-deep-ds7` declares only *optional* facts (a regex checklist can't
+    judge free-form research prose, so its layer-1 gate is deliberately
+    non-gating), so its `quality_gate` is unconditionally `True` and a pooled
+    True/False check could never see it degrade; and with exactly 3 witness
+    records, a pooled cost median picks the middle-ranked value, immune to a
+    blow-up in whichever single record is already the outlier — almost
+    always the deep task. Each task is now checked against its own opening
+    self on three signals: quality regression (`quality_gate` True→False,
+    catches `web-lookup`/`web-canary`), **observation-count collapse**
+    (`facts.optional_found` count drops to <half — catches `web-deep-ds7`,
+    whose `quality_gate` can't itself fail; the >2x threshold is *measured*:
+    a healthy `web-deep-ds7` run yields 5 observations, three separately
+    captured degraded-search runs yielded 1/2/3), and per-task cost blow-up
+    (`COST_DRIFT_FACTOR`, now applied per task instead of to a pooled
+    median). `campaign.OBSERVATION_DROP_FACTOR` is the tunable.
+  - **Exit codes are `0`/`2`/`3`, not `0`/`2`.** `0` = stable + revert clean;
+    `2` = drift witness voided the campaign (a task's numbers regressed) but
+    the revert still round-tripped; `3` = **the revert itself failed** —
+    printed and exited distinctly from `2` because it means the server is
+    left in a mismatched config state for whatever runs next, independent of
+    whether the campaign's own results looked fine. A revert mismatch used
+    to be printed but silently ignored by the exit code — fixed because a
+    real campaign was queued behind this and a false "success" would have
+    run it against a misconfigured server.
   - **Post-hoc search-degradation detection** (not a pre-flight probe — the
     fleet runs a paid Serper backend, so probing e.g. DuckDuckGo would measure
     the wrong thing): every completed record is inspected after the fact and
@@ -109,12 +135,21 @@ tools — keep them in sync if you change the protocol handling.
     times by design, e.g. one that delegates fetching to collapse an F^2
     term, is never penalized for doing its job). Degraded
     records stay in the JSONL but are excluded from the end-of-campaign medians.
+    **GOTCHA: the fetch-count half is inert at `--repeat 2`** (the CLI default
+    and the usage example) — `fetches_anomalous` needs ≥2 same-task/variant
+    peers, which a non-`V0` variant only accumulates at `--repeat >= 3` (`V0`
+    always has 3 via its witness-open/campaign/witness-close trio). The
+    `subagent_errors`-marker half is unaffected by `--repeat`.
   - **Medians are always reported WITH their spread** (min–max range + run
     count), never as a bare number or a bare "N% cheaper" claim — two runs of
     the *identical* config were measured to differ 1.85x in cost and 1.5x in
     fetches, so a difference smaller than that spread is not evidence of
     anything. `campaign.spread()`/`campaign.campaign_summary()` are the tested
     building blocks; `print_campaign_summary` is the CLI's end-of-run report.
+  - `main()`'s control flow (revert-on-raise, verify-abort, exit codes) has
+    committed test coverage in `TestCampaignMain` via `_FakeSwitcher` +
+    a fake `bench.run_task` — **never a live server**, so these tests are
+    safe to run alongside a real campaign against the running instance.
 - Unit tests: `python3 -m unittest discover -s squad-bench` (stdlib only).
 
 ## model-probe

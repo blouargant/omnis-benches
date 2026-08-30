@@ -120,9 +120,41 @@ round-tripped.
 
 **Variants are interleaved in time** (V0,V1,V3, V0,V1,V3 …) and V0 is run once
 before and once after the campaign as a **drift witness**. The web moves: running
-all of V0 then all of V3 would confuse page drift with variant effect. If the
-closing witness regressed in quality, or its median cost more than doubled, the
-campaign exits non-zero and its numbers must be discarded.
+all of V0 then all of V3 would confuse page drift with variant effect.
+
+**The witness comparison is done PER TASK, never pooled through one median.**
+Pooling is blind exactly where it matters: `web-deep-ds7` declares only
+*optional* facts (a regex checklist cannot judge free-form research prose, so
+its layer-1 gate is deliberately non-gating), so its `quality_gate` is
+unconditionally `true` and a pooled pass/fail check could never see it degrade;
+and with exactly 3 witness records, a pooled cost median picks the
+middle-ranked value, which is immune to a blow-up in whichever single record is
+already the cost outlier — almost always the deep task. So each task is
+compared against its own opening-witness self on three signals:
+- **quality regression** — `quality_gate` flips `true` → `false` (this is what
+  catches `web-lookup`/`web-canary`, which declare *required* facts).
+- **observation-count collapse** — the closing witness's
+  `facts.optional_found` count drops to less than half the opening witness's
+  (this is what catches `web-deep-ds7`, whose `quality_gate` can't itself go
+  `false`). **Measured, not guessed:** a healthy `web-deep-ds7` answer yields
+  **5** observations; three separately captured degraded-search runs yielded
+  **1, 2, and 3** — a >2x drop cleanly separates healthy from every observed
+  degraded sample.
+- **cost blow-up** — per task, closing cost more than doubles the opening
+  cost (the same `COST_DRIFT_FACTOR`, now applied per task instead of to a
+  pooled median).
+
+If any task trips any of the three, the campaign exits non-zero and its
+numbers must be discarded.
+
+**Exit codes**: `0` = campaign completed, drift stable, revert clean. `2` =
+drift witness voided the campaign (a task regressed/collapsed/blew up between
+the opening and closing witness) — the run's numbers should be discarded, but
+the server config was restored correctly. `3` = **the revert itself failed** —
+printed distinctly from `2` because it means something worse: the server is
+left in a **mismatched config state** for whatever runs next, regardless of
+whether the campaign's own numbers looked fine. Always check for `3` before
+trusting a `0`/`2` exit from an automated run.
 
 **Every completed run is also checked for search-backend degradation**, post-hoc
 (not as a pre-flight probe — the fleet runs on a paid Serper backend, so probing
@@ -136,6 +168,17 @@ design — e.g. one that delegates fetching to collapse an F² term — is never
 penalized for doing its job). Degraded records are kept in the JSONL (nothing is
 discarded) but excluded from the end-of-campaign medians; the exclusion count is
 printed alongside the numbers it affects.
+
+**The fetch-based half of the degradation detector needs `--repeat >= 3` to do
+anything.** `fetches_anomalous` needs at least 2 same-task/same-variant peers
+before it can judge a record's fetch count, and a variant only accumulates
+that many samples once it has run 3 times. At `--repeat 2` — the CLI default,
+and the example above — **every non-`V0` variant has at most 2 samples per
+task, so fetch-based degradation detection is silently inert for them** (only
+`V0` gets judged, since its opening/campaign/closing witnesses already give it
+3). The `subagent_errors`-marker half of the detector is unaffected by
+`--repeat` and still works at any value. Use `--repeat 3` or higher when
+fetch-based degradation detection matters for the variants under test.
 
 **The end-of-campaign summary always prints a median WITH its spread** — a
 min-max range and the run count, per variant — never a bare median or a bare

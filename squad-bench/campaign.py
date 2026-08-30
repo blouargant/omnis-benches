@@ -7,6 +7,18 @@ with variant effect, so variants alternate within each repeat, and V0 is run
 once more at the very end as a drift witness. If the closing witness diverges
 from the opening one, the campaign is void — not "interesting".
 
+The witness comparison is done PER TASK, never pooled through one median.
+Pooling is blind exactly where it matters: `web-deep-ds7` declares only
+OPTIONAL facts (a regex checklist cannot judge free-form research prose, so
+its layer-1 gate is deliberately non-gating) and so its `quality_gate` is
+unconditionally True — a pooled True/False check could never see it degrade.
+And with exactly 3 witness records, a pooled cost median picks the
+middle-ranked value, which is immune to a blow-up in whichever single record
+is already the cost outlier — almost always the deep task. So `drift_ok` keys
+both witness passes by task id and checks each task against itself: a quality
+regression (True -> False) where a task can fail it, an observation-count
+collapse (`facts.optional_found`) where it can't, and a per-task cost blow-up.
+
 A second, independent confound is the search backend itself: a run made while
 search is failing (rate-limited, timing out, returning nothing) looks both
 expensive and low-quality regardless of the variant's merits. Rather than a
@@ -77,20 +89,67 @@ def spread(records, key="total_cost_usd"):
     }
 
 
+# A closing witness's observation count dropping to less than half the
+# opening one's voids the campaign on a NON-GATING task (one with no required
+# facts, so `quality_gate` can never itself go False -- web-deep-ds7 is the
+# shipped example). This is a MEASURED threshold, not a guess: on that exact
+# task a healthy answer set yields 5 `facts.optional_found` observations,
+# while three separately captured degraded-search runs yielded 1, 2, and 3
+# (see tasks-web.json's web-deep-ds7 notes -- "calib run1/run2/run3"). A >2x
+# drop cleanly separates "healthy" (5) from every observed degraded sample
+# (1-3), with margin.
+OBSERVATION_DROP_FACTOR = 2.0
+
+
+def _optional_found_count(record):
+    return len((record.get("facts") or {}).get("optional_found") or [])
+
+
+def _index_by_task(records):
+    """Last-write-wins map of task id -> record. A witness pass runs each
+    task exactly once, so collisions aren't expected; last-write-wins is a
+    safe, simple default if one is ever declared twice."""
+    return {r.get("task"): r for r in records if r.get("task") is not None}
+
+
 def drift_ok(first, last):
-    """Compare the opening and closing V0 witness runs."""
+    """Compare the opening and closing V0 witness runs, PER TASK.
+
+    Every task gets the SAME three checks -- quality regression, observation
+    collapse, cost blow-up -- there is no separate 'gated task' vs
+    'non-gating task' code path, because that split can be read straight off
+    each task's own numbers: a task with required facts can flip
+    `quality_gate` True->False (web-lookup, web-canary); a task with only
+    optional facts never can (web-deep-ds7's `quality_gate` is unconditionally
+    True by construction), so for it the observation-count check is what
+    carries the signal instead. Applying both quality-side checks to every
+    task uniformly means neither needs to know which kind of task it is, and
+    the one that doesn't apply to a given task is simply a no-op for it (e.g.
+    web-lookup declares no optional facts, so its counts are 0 vs 0 and the
+    collapse check never fires). The cost check applies to every task
+    unconditionally, independent of which quality signal fires for it.
+
+    A task present in only one of the two witness passes is skipped (no
+    signal to compare) rather than raising."""
     if not first or not last:
         return True, "no witness pair"
-    was = {r.get("task"): r.get("quality_gate") for r in first}
-    now = {r.get("task"): r.get("quality_gate") for r in last}
-    regressed = [t for t, v in was.items() if v is True and now.get(t) is False]
-    if regressed:
-        return False, ("baseline quality regressed between the opening and closing "
-                       f"witness on: {', '.join(regressed)}")
-    c0, c1 = median([r.get("total_cost_usd") for r in first]), \
-             median([r.get("total_cost_usd") for r in last])
-    if c0 and c1 and c1 > c0 * COST_DRIFT_FACTOR:
-        return False, f"baseline cost drifted {c0} -> {c1} (> {COST_DRIFT_FACTOR}x)"
+    opened, closed = _index_by_task(first), _index_by_task(last)
+    for task, was in opened.items():
+        now = closed.get(task)
+        if now is None:
+            continue
+        if was.get("quality_gate") is True and now.get("quality_gate") is False:
+            return False, (f"baseline quality regressed on {task} between the "
+                           "opening and closing witness")
+        oc, cc = _optional_found_count(was), _optional_found_count(now)
+        if oc > 0 and cc < oc / OBSERVATION_DROP_FACTOR:
+            return False, (f"baseline observation count collapsed on {task}: "
+                           f"{oc} -> {cc} optional facts found "
+                           f"(> {OBSERVATION_DROP_FACTOR}x drop)")
+        c0, c1 = was.get("total_cost_usd"), now.get("total_cost_usd")
+        if c0 and c1 and c1 > c0 * COST_DRIFT_FACTOR:
+            return False, (f"baseline cost drifted on {task}: {c0} -> {c1} "
+                           f"(> {COST_DRIFT_FACTOR}x)")
     return True, "stable"
 
 
@@ -282,7 +341,8 @@ def main():
     ap.add_argument("--out", help="append one JSON record per run")
     args = ap.parse_args()
 
-    tasks = json.load(open(args.tasks))["tasks"]
+    with open(args.tasks) as f:
+        tasks = json.load(f)["tasks"]
     catalog = variants.load_variants(args.variants_file)
     ids = [v.strip() for v in args.variants.split(",") if v.strip()]
     unknown = [v for v in ids if v not in catalog]
@@ -309,6 +369,7 @@ def main():
     sw.snapshot()
     opening, closing = [], []
     all_records = []
+    revert_mismatch = None
     try:
         print("=== opening witness (V0) ===")
         sw.apply(catalog["V0"])
@@ -337,8 +398,8 @@ def main():
             closing.append(r)
             all_records.append(r)
     finally:
-        bad = sw.revert()
-        print("revert:", "clean" if not bad else f"MISMATCH {bad}")
+        revert_mismatch = sw.revert()
+        print("revert:", "clean" if not revert_mismatch else f"MISMATCH {revert_mismatch}")
 
     # Post-hoc degradation pass: needs every record in the campaign as peer
     # context (a run early in the campaign has no same-task/same-variant
@@ -362,6 +423,18 @@ def main():
 
     ok, why = drift_ok(opening, closing)
     print(f"\n===== drift witness: {'OK' if ok else 'CAMPAIGN VOID'} — {why} =====")
+
+    # A failed revert must never report success: it leaves the server
+    # misconfigured for whatever runs next, silently, unless the exit code
+    # says so. Checked (and exits) AFTER the drift line above so the operator
+    # sees both -- but the revert failure wins the exit code (a distinct,
+    # non-drift-void code) since a misconfigured server is the more urgent
+    # problem for whatever is queued behind this campaign.
+    if revert_mismatch:
+        print(f"\n===== REVERT FAILED — server config left MISMATCHED, "
+              f"do not trust it: {revert_mismatch} =====")
+        sys.exit(3)
+
     sys.exit(0 if ok else 2)
 
 
