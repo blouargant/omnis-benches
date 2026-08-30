@@ -1,0 +1,40 @@
+{
+  "_comment": "Config-only variants for the web_agent cost protocol (Phase 1). V5/V6 need Go and are deliberately absent — the spec only authorises writing Go if these prove insufficient. Every variant is applied from the V0 snapshot, never stacked.",
+  "variants": [
+    {
+      "id": "V0",
+      "label": "baseline",
+      "patches": []
+    },
+    {
+      "id": "V1",
+      "label": "max_instances 10 -> 4",
+      "hypothesis": "C — W is linear in cost; fewer parallel dispatches also reduce gateway contention",
+      "patches": [
+        {"section": "agent", "agent": "web_agent", "key": "max_instances", "value": 4}
+      ]
+    },
+    {
+      "id": "V3",
+      "label": "B — delegate fetching to web_fetcher",
+      "hypothesis": "B — splitting one F-step session into F one-step sessions kills the F^2 term; token count collapses even though price per token is unchanged",
+      "patches": [
+        {"section": "agent", "agent": "web_agent", "key": "subagents", "value": ["web_fetcher"]},
+        {"section": "agent", "agent": "web_agent", "remove_from": "tools", "value": "web"},
+        {"section": "agent", "agent": "web_fetcher", "key": "model_ref", "value": "balanced"}
+      ]
+    },
+    {
+      "id": "V3b",
+      "label": "B — web_fetcher does the searching too",
+      "hypothesis": "B — as V3, but web_agent keeps no web tools at all",
+      "patches": [
+        {"section": "agent", "agent": "web_agent", "key": "subagents", "value": ["web_fetcher"]},
+        {"section": "agent", "agent": "web_agent", "remove_from": "tools", "value": "web"},
+        {"section": "agent", "agent": "web_agent", "remove_from": "tools", "value": "serper"},
+        {"section": "agent", "agent": "web_agent", "remove_from": "tools", "value": "ddg"},
+        {"section": "agent", "agent": "web_fetcher", "key": "model_ref", "value": "balanced"}
+      ]
+    }
+  ]
+}

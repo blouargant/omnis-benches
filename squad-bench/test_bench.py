@@ -140,5 +140,43 @@ class TestNoteUrl(unittest.TestCase):
         self.assertEqual(len(m["_urls"]), 1)
 
 
+import variants
+
+
+class TestFindAgent(unittest.TestCase):
+    def test_list_of_objects_shape(self):
+        cfg = {"agents": [{"name": "leader"}, {"name": "web_agent", "max_instances": 10}]}
+        self.assertEqual(variants.find_agent(cfg, "web_agent")["max_instances"], 10)
+
+    def test_name_keyed_dict_shape(self):
+        cfg = {"agents": {"web_agent": {"max_instances": 10}}}
+        self.assertEqual(variants.find_agent(cfg, "web_agent")["max_instances"], 10)
+
+    def test_unknown_agent_is_none(self):
+        self.assertIsNone(variants.find_agent({"agents": []}, "nope"))
+
+
+class TestApplyPatch(unittest.TestCase):
+    def test_set_key_does_not_mutate_the_input(self):
+        cfg = {"agents": [{"name": "web_agent", "max_instances": 10}]}
+        out = variants.apply_patch(cfg, {"agent": "web_agent", "key": "max_instances", "value": 4})
+        self.assertEqual(variants.find_agent(out, "web_agent")["max_instances"], 4)
+        self.assertEqual(variants.find_agent(cfg, "web_agent")["max_instances"], 10)
+
+    def test_remove_from_drops_a_list_entry(self):
+        cfg = {"agents": [{"name": "web_agent", "tools": ["serper", "web", "ddg"]}]}
+        out = variants.apply_patch(cfg, {"agent": "web_agent", "remove_from": "tools", "value": "web"})
+        self.assertEqual(variants.find_agent(out, "web_agent")["tools"], ["serper", "ddg"])
+
+    def test_remove_absent_entry_is_a_noop(self):
+        cfg = {"agents": [{"name": "web_agent", "tools": ["serper"]}]}
+        out = variants.apply_patch(cfg, {"agent": "web_agent", "remove_from": "tools", "value": "web"})
+        self.assertEqual(variants.find_agent(out, "web_agent")["tools"], ["serper"])
+
+    def test_unknown_agent_raises(self):
+        with self.assertRaises(KeyError):
+            variants.apply_patch({"agents": []}, {"agent": "ghost", "key": "x", "value": 1})
+
+
 if __name__ == "__main__":
     unittest.main()
