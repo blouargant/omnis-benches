@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Unit tests for squad-bench pure logic. Run: python3 -m unittest discover -s squad-bench"""
+import copy
 import os
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -176,6 +178,56 @@ class TestApplyPatch(unittest.TestCase):
     def test_unknown_agent_raises(self):
         with self.assertRaises(KeyError):
             variants.apply_patch({"agents": []}, {"agent": "ghost", "key": "x", "value": 1})
+
+
+class TestSwitcherApplyResetsToBaseline(unittest.TestCase):
+    """Pins the fix-round-1 defect: apply()'s old `touched` guard meant a
+    no-patch variant (V0, the interleaved campaign's drift witness) never
+    PUT anything, silently leaving whatever the PREVIOUS variant set still
+    live. apply() must always PUT the computed config for every managed
+    section, so apply(<no-patch variant>) is a genuine reset to baseline.
+
+    Uses a fake HTTP layer (records PUT calls) instead of a live server —
+    this must never touch a running omnis-server, which may have a
+    benchmark campaign in flight against it.
+    """
+
+    def test_no_patch_variant_after_a_patched_one_still_puts_the_baseline(self):
+        calls = []
+        baseline_cfg = {"agents": [{"name": "web_agent", "max_instances": 10}]}
+
+        def fake_api(method, base, path, token, body=None, timeout=60):
+            if method == "GET":
+                return {"name": "agent", "data": copy.deepcopy(baseline_cfg), "mtime": "t0"}
+            if method == "PUT":
+                calls.append((path, copy.deepcopy(body)))
+                return {}
+            if method == "POST":
+                return {}
+            raise AssertionError(f"unexpected method {method!r}")
+
+        with mock.patch.object(variants, "api", fake_api):
+            sw = variants.Switcher("http://example.invalid", "tok")
+            sw.snapshot()
+
+            sw.apply({"id": "V1", "patches": [
+                {"agent": "web_agent", "key": "max_instances", "value": 4},
+            ]})
+            self.assertEqual(len(calls), 1, "V1 (a patched variant) must PUT once")
+
+            # V0: the interleaved campaign's no-patch baseline/drift witness.
+            sw.apply({"id": "V0", "patches": []})
+            self.assertEqual(
+                len(calls), 2,
+                "apply() with an empty patch list must still PUT — this is the reset "
+                "that keeps V0 witnesses honest in a time-interleaved campaign",
+            )
+            _, reset_body = calls[1]
+            reset_agent = variants.find_agent(reset_body["data"], "web_agent")
+            self.assertEqual(
+                reset_agent["max_instances"], 10,
+                "the V0 PUT body must equal the baseline, not the still-live V1 value",
+            )
 
 
 if __name__ == "__main__":

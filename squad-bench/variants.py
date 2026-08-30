@@ -103,19 +103,32 @@ class Switcher:
 
     def apply(self, variant):
         """Apply a variant from the SNAPSHOT, never from current state, so
-        variants never stack."""
+        variants never stack.
+
+        Always PUTs the computed config for every managed section, even when
+        `variant` has an empty (or section-irrelevant) patch list. This is
+        load-bearing, not an oversight: a time-interleaved campaign (V0, V1,
+        V3, V0, V1, V3, ...) uses `apply(V0)` — the no-patch baseline — as a
+        drift witness between other variants, and the caller must be able to
+        read `apply(<no-patch variant>)` as "the live config now equals the
+        baseline" and be right. An earlier version only PUT when a patch had
+        actually touched a section (an optimisation to skip a redundant
+        write); that made `apply(V0)` a silent no-op that left whatever the
+        PREVIOUS variant set still live — the exact invisible-stacking
+        failure time-interleaving exists to catch, and it would have left no
+        trace in the records. The omnis GET/PUT round-trip is idempotent (a
+        no-op PUT changes zero files and leaves untouched agents' teams
+        intact), so a redundant PUT here costs nothing.
+        """
         if self.baseline is None:
             self.snapshot()
         for section in SECTIONS:
             cfg = copy.deepcopy(self.baseline[section])
-            touched = False
             for p in variant.get("patches", []):
                 if p.get("section", "agent") != section:
                     continue
                 cfg = apply_patch(cfg, p)
-                touched = True
-            if touched:
-                self._put(section, cfg)
+            self._put(section, cfg)
         self._reload()
 
     def verify(self, variant):
