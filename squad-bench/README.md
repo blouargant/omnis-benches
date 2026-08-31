@@ -169,6 +169,18 @@ penalized for doing its job). Degraded records are kept in the JSONL (nothing is
 discarded) but excluded from the end-of-campaign medians; the exclusion count is
 printed alongside the numbers it affects.
 
+**The fetch-count ratio test only applies once the peer median clears
+`FETCH_ANOMALY_MIN_PEER_MEDIAN` (5).** A real campaign flagged three
+`web-lookup` runs as `search_degraded` with reasons `fetches=3 vs peer median
+0.5`, `fetches=0 vs peer median 1.0`, and `fetches=0 vs peer median 2.0` — on a
+task that legitimately makes 0-3 fetches, a swing of one or two fetches
+produces an enormous ratio, and a "peer median" under 1 isn't a meaningful
+quantity to divide by. Below the floor the ratio test does not apply at all —
+only a `subagent_errors` marker (unaffected by fetch volume) can flag such a
+run. 5 is chosen because every observed false-positive peer median (0.5, 1.0,
+2.0) sits well under it, while the one confirmed genuine anomaly on record (21
+fetches vs a peer median of 108) sits two orders of magnitude above it.
+
 **The fetch-based half of the degradation detector needs `--repeat >= 3` to do
 anything.** `fetches_anomalous` needs at least 2 same-task/same-variant peers
 before it can judge a record's fetch count, and a variant only accumulates

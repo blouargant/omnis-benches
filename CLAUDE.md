@@ -135,6 +135,21 @@ tools — keep them in sync if you change the protocol handling.
     times by design, e.g. one that delegates fetching to collapse an F^2
     term, is never penalized for doing its job). Degraded
     records stay in the JSONL but are excluded from the end-of-campaign medians.
+    **The fetch-count ratio test additionally requires the peer median itself
+    to be ≥ `FETCH_ANOMALY_MIN_PEER_MEDIAN` (5) before it applies at all** — a
+    real campaign flagged three `web-lookup` runs as `search_degraded` with
+    reasons `fetches=3 vs peer median 0.5`, `fetches=0 vs peer median 1.0`, and
+    `fetches=0 vs peer median 2.0`: on a task that legitimately makes 0-3
+    fetches, one or two fetches of noise produces a huge ratio, and a "peer
+    median" under 1 isn't a meaningful quantity to divide by. Below the floor
+    the ratio test is a no-op and only the volume-independent
+    `subagent_errors` marker can flag the run — a search backend failing is a
+    real signal whatever the fetch count, so that half is deliberately
+    unweakened. 5 was picked because every observed false-positive peer
+    median (0.5, 1.0, 2.0) sits well under it while the one confirmed genuine
+    anomaly on record (21 fetches vs a peer median of 108) sits two orders of
+    magnitude above it — `fetches_anomalous(record, campaign_records,
+    min_peer_median=...)` is the tunable if that gap ever needs narrowing.
     **GOTCHA: the fetch-count half is inert at `--repeat 2`** (the CLI default
     and the usage example) — `fetches_anomalous` needs ≥2 same-task/variant
     peers, which a non-`V0` variant only accumulates at `--repeat >= 3` (`V0`

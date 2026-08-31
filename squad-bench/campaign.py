@@ -176,6 +176,22 @@ SEARCH_DEGRADED_MARKERS = (
 # identical-config runs, so normal noise never trips it.
 FETCH_ANOMALY_FACTOR = 3.0
 
+# The peer group's median `fetches` must be at least this large before the
+# ratio test above is allowed to fire at all. A real campaign flagged three
+# `web-lookup` runs as anomalous with reasons `fetches=3 vs peer median 0.5`,
+# `fetches=0 vs peer median 1.0`, and `fetches=0 vs peer median 2.0` -- on a
+# task that legitimately makes 0-3 fetches, a swing of one or two fetches
+# produces an enormous ratio, and a "peer median" under 1 isn't a meaningful
+# quantity to divide by in the first place. 5 is chosen because every
+# observed false-positive peer median (0.5, 1.0, 2.0) sits well under it,
+# while the one confirmed genuine anomaly on record (21 fetches vs a peer
+# median of 108) sits two orders of magnitude above it -- there is a wide gap
+# between "noise on a low-fetch task" and "a real collapse/explosion on a
+# high-fetch task" for this floor to sit inside. Below the floor, only the
+# (volume-independent) subagent_errors signal can flag a run -- a search
+# backend failing is real regardless of how few fetches were attempted.
+FETCH_ANOMALY_MIN_PEER_MEDIAN = 5
+
 
 def _error_markers(record):
     """Search-failure substrings found in this record's subagent_errors detail
@@ -207,13 +223,22 @@ def _fetch_peers(record, campaign_records):
             and r.get("fetches") is not None]
 
 
-def fetches_anomalous(record, campaign_records, factor=FETCH_ANOMALY_FACTOR):
+def fetches_anomalous(record, campaign_records, factor=FETCH_ANOMALY_FACTOR,
+                       min_peer_median=FETCH_ANOMALY_MIN_PEER_MEDIAN):
     """True when `record`'s fetch count is more than `factor`x away (either
     direction) from the median of its same-task/same-variant peers. Needs at
     least 2 peers to judge against; with fewer it never flags (nothing to
     compare) — in practice this means a variant needs `--repeat >= 3` (or is
     V0, witnessed 3x by construction) before its own fetch count can be
-    judged anomalous against itself."""
+    judged anomalous against itself.
+
+    The ratio test additionally requires the peer median itself to be at
+    least `min_peer_median` — below that floor a peer median is too small a
+    sample of real search activity for a ratio to mean anything (see
+    FETCH_ANOMALY_MIN_PEER_MEDIAN), so a low-volume task (0-3 fetches is
+    normal) never gets flagged on fetch count alone. This subsumes the old
+    "peer median is exactly 0" special case, since 0 is always below any
+    positive floor."""
     fetches = record.get("fetches")
     if fetches is None:
         return False
@@ -221,10 +246,8 @@ def fetches_anomalous(record, campaign_records, factor=FETCH_ANOMALY_FACTOR):
     if len(peers) < 2:
         return False
     m = median(peers)
-    if not m:
-        # peer median is 0 (no one else fetched anything) -- any nontrivial
-        # activity here is itself the outlier.
-        return fetches >= factor
+    if not m or m < min_peer_median:
+        return False
     return fetches > m * factor or fetches < m / factor
 
 

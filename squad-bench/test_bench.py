@@ -779,5 +779,84 @@ class TestCampaignMain(unittest.TestCase):
         self.assertTrue(fake_sw.reverted)
 
 
+class TestFetchAnomalyVolumeFloor(unittest.TestCase):
+    """`fetches_anomalous`'s ratio test only means something once the peer
+    group has done enough real work for a median to be a meaningful quantity.
+
+    OBSERVED FAILURE from a real campaign: three `web-lookup` runs were
+    excluded as `search_degraded` with reasons `fetches=3 vs peer median 0.5`,
+    `fetches=0 vs peer median 1.0`, and `fetches=0 vs peer median 2.0`. On a
+    task that legitimately makes 0-3 fetches, a swing of one or two fetches
+    is meaningless noise, and a "peer median" of 0.5 is not a meaningful
+    quantity at all -- the ratio test blows up at these scales for any
+    plausible fetch count. So the ratio test now requires the peer median to
+    clear `FETCH_ANOMALY_MIN_PEER_MEDIAN` (5) before it applies at all; below
+    that floor only the (volume-independent) subagent_errors signal can flag
+    a run. 5 is picked because every real false-positive peer median observed
+    (0.5, 1.0, 2.0) sits well under it, while the one confirmed genuine
+    anomaly on record (21 fetches vs a peer median of 108) sits two orders of
+    magnitude above it -- there is a wide, unambiguous gap between "noise on a
+    low-fetch task" and "a real collapse/explosion on a high-fetch task" for
+    5 to sit inside."""
+
+    def test_low_volume_peer_median_no_longer_flags(self):
+        """Reproduces the three real false positives verbatim: peer medians
+        0.5, 1.0, 2.0 (all < the floor) must never flag on fetch count alone,
+        regardless of how large the ratio to the record's own count is."""
+        cases = [
+            # (record fetches, peer fetches) -> real observed peer median
+            (3, [0, 1]),      # peer median 0.5
+            (0, [1, 1]),      # peer median 1.0
+            (0, [1, 3]),      # peer median 2.0
+        ]
+        for fetches, peer_fetches in cases:
+            with self.subTest(fetches=fetches, peers=peer_fetches):
+                record = {"task": "web-lookup", "fetches": fetches, "subagent_errors": []}
+                peers = [{"task": "web-lookup", "fetches": f, "subagent_errors": []}
+                         for f in peer_fetches]
+                all_recs = [record] + peers
+                campaign.mark_search_degraded(record, all_recs)
+                self.assertFalse(
+                    record["search_degraded"],
+                    f"fetches={fetches} vs low-volume peers {peer_fetches} must not flag")
+                self.assertEqual(record["degraded_reason"], "")
+
+    def test_genuine_high_volume_anomaly_still_flags(self):
+        """Real data: 21 fetches vs a peer median of 108 (well above the
+        floor) is a genuine collapse and must still be caught."""
+        peers = [{"task": "web-deep-ds7", "fetches": n, "subagent_errors": []}
+                 for n in (100, 108, 116)]
+        collapsed = {"task": "web-deep-ds7", "fetches": 21, "subagent_errors": []}
+        all_recs = peers + [collapsed]
+        campaign.mark_search_degraded(collapsed, all_recs)
+        self.assertTrue(collapsed["search_degraded"])
+        self.assertIn("fetches", collapsed["degraded_reason"])
+        self.assertIn("108", collapsed["degraded_reason"])
+
+    def test_subagent_error_path_still_flags_at_any_volume(self):
+        """The volume floor must gate ONLY the fetch-count ratio test. A
+        search-backend failure is a real signal regardless of how few fetches
+        were made, and regardless of whether there are any same-task/variant
+        peers at all -- this must not be weakened by the floor."""
+        # No peers at all.
+        lone = {"task": "web-lookup", "fetches": 0,
+                "subagent_errors": [{"agent": "web_agent", "detail": "context deadline exceeded"}]}
+        campaign.mark_search_degraded(lone, [lone])
+        self.assertTrue(lone["search_degraded"])
+        self.assertIn("deadline exceeded", lone["degraded_reason"])
+
+        # Low-volume peers (below the floor) alongside an error marker.
+        peers = [{"task": "web-lookup", "fetches": f, "subagent_errors": []} for f in (0, 1)]
+        erroring = {"task": "web-lookup", "fetches": 0,
+                    "subagent_errors": [{"agent": "web_agent", "detail": "rate limit hit"}]}
+        all_recs = peers + [erroring]
+        campaign.mark_search_degraded(erroring, all_recs)
+        self.assertTrue(erroring["search_degraded"])
+        self.assertIn("rate limit", erroring["degraded_reason"])
+        # And the fetch-count half must not have piggybacked onto the reason
+        # (the low peer median is below the floor, so it contributes nothing).
+        self.assertNotIn("fetches=", erroring["degraded_reason"])
+
+
 if __name__ == "__main__":
     unittest.main()
