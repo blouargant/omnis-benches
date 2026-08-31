@@ -132,18 +132,29 @@ def note_usage(usage, d):
         a, {"in_per_m": d.get("in_price_per_m"), "out_per_m": d.get("out_price_per_m"),
             "prompt_tok": 0, "out_tok": 0, "cache_read_tok": 0, "calls": 0,
             "est_cost_usd": 0.0})
-    e["prompt_tok"] += d.get("prompt_tokens") or 0
+    prompt_tokens = d.get("prompt_tokens") or 0
+    cache_read_tokens = d.get("cache_read_tokens") or 0
+    e["prompt_tok"] += prompt_tokens
     e["out_tok"] += d.get("output_tokens") or 0
-    e["cache_read_tok"] += d.get("cache_read_tokens") or 0
+    e["cache_read_tok"] += cache_read_tokens
     e["calls"] += 1
     inp = (d.get("in_price_per_m") or 0) / 1e6
     outp = (d.get("out_price_per_m") or 0) / 1e6
     crp = (d.get("cache_read_price_per_m") or 0) / 1e6
+    # prompt_tokens (OpenAI usage convention) already INCLUDES cache_read_tokens
+    # as a subset, not an addition -- billing both the full prompt count at the
+    # input price AND cache_read_tokens at the cache-read price double-charges
+    # the cached portion. Only the uncached remainder pays the full input price;
+    # cache_read_tokens pay the (usually much cheaper) cache-read price. Clamp
+    # at zero defensively: a provider report where cache_read > prompt would
+    # otherwise go negative. Mirrors squad-bench/bench.py's note_model fix
+    # (commit 6cb1466) -- keep both in sync.
+    uncached_tokens = max(0, prompt_tokens - cache_read_tokens)
     e["est_cost_usd"] = round(
         e["est_cost_usd"]
-        + (d.get("prompt_tokens") or 0) * inp
-        + (d.get("output_tokens") or 0) * outp
-        + (d.get("cache_read_tokens") or 0) * crp, 6)
+        + uncached_tokens * inp
+        + cache_read_tokens * crp
+        + (d.get("output_tokens") or 0) * outp, 6)
 
 
 def usage_summary(usage):

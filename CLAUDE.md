@@ -214,9 +214,40 @@ then scoring with the task's `verify.sh` on an ephemeral kind cluster.
   math as squad-bench's `models` block) and prints a summary to **stderr**
   (`omnis-agent: usage …`), also appended as a footer to `--trace-path`. Diagnostic
   only; stdout stays the answer the harness scores, so Pass@k is unaffected.
+  **Cache-aware billing, same fix as squad-bench's `note_model` (commit
+  `6cb1466`) — mirrored here in `note_usage`.** `prompt_tokens` (OpenAI usage
+  convention) already **includes** `cache_read_tokens` as a subset, not an
+  addition; billing the full `prompt_tokens` at the input price AND
+  `cache_read_tokens` at the cache-read price double-charges the cached
+  portion. `note_usage` bills only the uncached remainder
+  (`prompt_tok - cache_read_tok`, clamped at zero) at the input price;
+  `cache_read_tok` pays the cache-read price. Same verified regression as
+  squad-bench: 182311 prompt / 153089 cache-read (84% hit) / 3052 output at
+  $3.15/$15.75/$0.30 per M reads **$0.668275** under the old formula, **$0.186045**
+  under the correct one. **Any `omnis-agent: usage` summary or `--trace-path`
+  footer captured before this fix carries an inflated cost for any agent whose
+  `cache_read` is non-zero** (a zero-cache agent is unaffected); it can be
+  recomputed from the retained `prompt`/`cache_read`/`out` fields the same way
+  a pre-fix squad-bench JSONL record can (see squad-bench's README/CLAUDE.md
+  note) — this file does not persist `cache_read_price_per_m` per agent, so
+  recomputing a specific historical run needs that price looked up from the
+  `models.json` active at the time. **Consequence for past conclusions:** any
+  cost comparison drawn from `omnis-agent` runs before this fix (e.g. a
+  cost-per-tier ratio) overstates the cost of whichever tier caches more
+  heavily — `premium` was measured at 84% cache-hit in one such run, so a
+  `premium`-vs-non-caching-tier ratio computed pre-fix is inflated on
+  `premium`'s side. Do not recompute or rewrite historical `k8s-ai-bench`
+  reports retroactively; treat pre-fix and post-fix cost figures as
+  non-comparable. `omnis-agent`'s pure logic (`note_usage`, `usage_summary`)
+  has unit coverage in `k8s-ai-bench/test_omnis_agent.py` — the script has no
+  `.py` suffix (it must present as a `kubectl-ai`-shaped CLI binary), so the
+  test module loads it via `importlib.machinery.SourceFileLoader` rather than
+  a normal `import`.
 - Env: `OMNIS_SERVER_BIN` (omnis-server binary), `OMNIS_BENCH_SQUAD` (default
   `kubernetes`), `OMNIS_BENCH_DEADLINE`. Running the full suite needs
   **kind + docker + go** (not auto-installed).
+- Unit tests: `python3 -m unittest discover -s k8s-ai-bench` (stdlib only;
+  covers `omnis-agent`'s pure logic only — no live cluster/server involved).
 
 ## Gotchas (hard-won)
 

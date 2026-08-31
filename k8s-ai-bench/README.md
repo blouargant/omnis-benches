@@ -80,6 +80,19 @@ other cluster.
   `omnis-agent: usage …`) and, if `--trace-path` is set, appends the same summary
   as a footer to the trace file. stdout stays the answer text the harness scores,
   so this is diagnostic only and doesn't affect Pass@k.
+  **Cache-aware billing**: `prompt_tokens` already *includes* `cache_read_tokens`
+  as a subset (OpenAI usage convention), so `note_usage` bills only the uncached
+  remainder at the input price and `cache_read_tokens` at the (cheaper) cache-read
+  price — billing both in full double-charges the cached portion (same fix as
+  squad-bench's `note_model`, see CLAUDE.md). **A summary captured before this fix
+  carries an inflated cost for any agent with non-zero `cache_read`** — it can be
+  recomputed from the retained `prompt`/`cache_read`/`out` fields plus the
+  `cache_read_price_per_m` in effect at the time. Do not compare a pre-fix and a
+  post-fix cost figure as if they were on the same scale, and do not treat a
+  pre-fix cross-tier cost ratio (e.g. "tier X is Nx cheaper than tier Y") as
+  accurate if either tier caches — it overstates the caching tier's cost.
+  Covered by `k8s-ai-bench/test_omnis_agent.py`
+  (`python3 -m unittest discover -s k8s-ai-bench`).
 
 ## Prerequisites
 
