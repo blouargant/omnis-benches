@@ -341,6 +341,50 @@ then scoring with the task's `verify.sh` on an ephemeral kind cluster.
   `reports/gateway-balanced-tool-calling-2026-08-13.md`. Lesson for benching: when a
   model suddenly "narrates instead of acting", run `model-probe` against the endpoint
   **and** the same model direct at its provider before blaming the squad or the model.
+- **That August fix FREEZES the cost map, so every Scaleway model added afterwards is
+  born with `tools` stripped.** FIXED for DeepSeek on 2026-09-15 by moving that one route
+  to the **`openai/` pattern** (`openai/deepseek-v4-flash-0731`, provider `openai`,
+  `api_base` unchanged): re-probed **9 pass / 0 fail / 0 warn**, all 4 critical tool
+  checks green, no regression on the `scaleway/` siblings, pricing intact (it lives in
+  `litellm_params`, not the cost map), and the upstream 400 now surfaces as a **400**
+  instead of a masked **500**. **This is the remedy to generalize** — the remaining 10
+  `scaleway/*` routes still hang off the frozen August snapshot and work only by its
+  aliases, so the next Scaleway model added on that pattern will be born broken again.
+  Original diagnosis, verified 2026-09-15 on `deepseek-v4-flash-scaleway`
+  (deployed 2026-09-14): gateway **0/4** critical tool checks, Scaleway direct **7/7** —
+  the model is fine, the gateway drops the param. The cause is *not* August's
+  vendor-prefix mismatch, and the proof is a pair of facts admitting one explanation:
+  the routes that **work** declare SHORT ids (`scaleway/qwen3.6-35b-a3b`) which exist
+  **nowhere** in the current upstream cost map (not as keys, not as `aliases`), while
+  the route that **fails** declares `scaleway/deepseek-v4-flash-0731`, which upstream
+  **does** carry with `supports_function_calling: true`. Reading the upstream map would
+  give the exact opposite result — so the gateway serves the **patched snapshot from
+  2026-08-13**, which holds the 6 aliases but predates the DeepSeek entry.
+  Consequence: **run `model-probe --only tools` against the gateway for every newly
+  added `scaleway/*` model before wiring it into a squad** — a stripped `tools` makes
+  agents narrate their plan instead of acting, which reads as a prompt or model problem
+  and is expensive to chase. The durable fix is to stop depending on the cost map at
+  all: the `openai/` route pattern hard-codes the tool params and never consults it.
+  Full diagnosis, the one-entry hot patch, and the post-fix verification (§8) in
+  `reports/gateway-deepseek-tool-calling-2026-09-15.md`.
+- **DeepSeek's `/model/info` was FIXED 2026-09-15 — omnis now prefills the safe context
+  by itself, and `max_tokens` is the leftover trap.** It used to advertise
+  `max_output_tokens: 256000` while the provider rejects anything above **32768**
+  (boundary verified exactly: 32768 -> OK, 32769 -> `payload validation:
+  max_completion_tokens is limited to 32768 for deepseek-v4-flash-0731`, an unbilled
+  400). It now declares `max_output_tokens: 32768` **and** `max_input_tokens: 229376`
+  (= 262144 - 32768), so `server/provider_models.go`'s `ctxLen := mi.MaxInputTokens;
+  if ctxLen == 0 { ctxLen = mi.MaxTokens }` yields **229376** — the shipped-`balanced`
+  output-reservation trap can no longer happen for this model via prefill, and the
+  cache-read price is picked up with it. **But `max_tokens` is still 256000**, where
+  LiteLLM convention (and the upstream entry) makes it mirror `max_output_tokens`
+  (32768): harmless for omnis, which reads it only when `max_input_tokens` is zero, yet
+  a live mine for any client reading it as the output budget. Also note **editing a
+  model's `model_info` rewrites the whole LiteLLM deployment**, so it can silently
+  revert `litellm_params.model` — re-run `model-probe --only tools` after every edit to
+  a model's card (it did not revert this time: 4 pass / 0 fail). The 400-masked-as-500
+  noted earlier also disappeared with the `openai/` route: the upstream 400 now
+  surfaces as a **400** `BadRequestError`.
 - **A model's `context_length` must leave room for the output reservation — the
   shipped `balanced` value does not.** omnis asks for `max_completion_tokens` on
   top of the prompt, and the provider validates the *sum* against its context
