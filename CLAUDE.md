@@ -259,6 +259,28 @@ then scoring with the task's `verify.sh` on an ephemeral kind cluster.
   hot-reloadable), and **always verify the recorded per-tier price actually
   changed** (each record's `models` block carries in/out `$/M`) before trusting a
   sweep — a silent no-op swap makes every tier look identical.
+- **"hot-reloadable" does NOT cover a file edit to `override_model_enabled` — RESTART the
+  bench server between arms.** Measured 2026-09-15 while building a two-arm squad-bench
+  comparison: flipping `override_model_enabled` to `false` in the running server's
+  `.agents/models.json` left the very next task still recording `in_per_m: 0.42 /
+  out_per_m: 0.84` (the override tier). Only a restart picked it up. **This is the exact
+  failure the price check exists to catch** — without it the "baseline" arm would have
+  measured the override model while believing it measured the defaults, and the two arms
+  would have looked identical, which reads as "the model makes no difference" rather than
+  "the swap never happened". Recompute the cost from each record's own
+  `prompt_tok`/`out_tok` against the printed `$/M` before trusting ANY arm.
+- **Defaults of the `Coding` squad, for sizing a baseline** (read off a record's `models`
+  block on 2026-09-15, since the agents are `builtin` and carry no readable `model_ref`
+  in `~/.omnis/registry/agents/*/agent.json`): `coder` = **premium** ($3.15/$15.75 per M),
+  `code_scout` = **simple** ($0.2625/$0.525), `code_docs` = **balanced** ($0.26/$1.58).
+  A 4-task `--suite` baseline arm costs ~$0.19.
+- **`SERPER_KEY` is absent from the root `.env` but lives in the dev server's own
+  environment.** `~/.omnis/agents.json` declares `"serper_key": "SERPER_KEY"` (an env-var
+  reference), and that variable is in neither the shell nor `.env` — so a freshly spawned
+  bench server gets no paid backend and web tasks silently fall back to DuckDuckGo. It
+  can be read from the running dev server (`tr '\0' '\n' < /proc/<pid>/environ`) as a
+  stopgap, but **it belongs in the root `.env`** per this file's own single-mechanism
+  rule.
 - **squad-bench never answers `ask_user` — and now fails fast instead of hanging.**
   A tool call that raises a permission prompt used to burn the whole deadline and
   come back as `cancelled`, which reads like a model failure. Since 2026-09-05 the
