@@ -389,6 +389,44 @@ then scoring with the task's `verify.sh` on an ephemeral kind cluster.
   all: the `openai/` route pattern hard-codes the tool params and never consults it.
   Full diagnosis, the one-entry hot patch, and the post-fix verification (§8) in
   `reports/gateway-deepseek-tool-calling-2026-09-15.md`.
+- **DeepSeek's prompt cache is best-effort BY DESIGN — ~60% on a hammered prefix, but
+  only 3.7% on real omnis load, and that gap is structural, not a bug.** Scaleway
+  documents it: caching uses "heuristics that optimize both throughput and availability",
+  "evicts it based on request frequency", and promises "a cache hit ratio between 50% and
+  90%, though this value is not guaranteed". Measured 2026-09-15 on Scaleway direct with
+  a unique cold prefix: **24/40 hits, windows of ten reading 6, 5, 7, 6** — it PLATEAUS
+  near 60%, it does not warm toward 100% (a 24-call sample looked like a warming curve;
+  40 calls refuted it). Still hits after 5 min idle (4/10), and **9/10 right after an
+  8-way parallel burst** — concurrent calls warm several replicas at once, which is the
+  only lever found. Latency corroborates independently: hits bottom out at ~320 ms,
+  misses never went below 681 ms, so `cached_tokens` is honest. Cached volume is
+  quantized to 128-token blocks. **On omnis the effective ratio is 3.7%**
+  (9984/267581 tok over a squad-bench arm) because a prefix is only sent **2-7 times**
+  before it is never seen again — `coder` (always `calls=2`) hit 0/4 tasks, `code_scout`
+  (3-7 calls) hit 2 of 3. The documented band is for *recurring prefixes at volume*; a
+  short agent session with a fresh prefix is the worst case, so **an isolated bench run
+  structurally understates production caching** and the cache is a measurement
+  CONFOUND worth ~5x on the cached share. Full investigation + reusable measurement
+  script: `reports/deepseek-prompt-cache-2026-09-15.md` (+ `-probe.py`).
+- **DO NOT re-investigate omnis's `cache_control` markers — tested, REFUTED.**
+  `core/llm/openai.go:296` `markCacheablePrefix` marks `messages[0]` and the **last**
+  message, and `markMessageCacheable` converts a string body to array form to host the
+  annotation — so the previously-marked message reverts to a plain string on the next
+  turn, and a proxy capture of real omnis traffic shows the common prefix between two
+  consecutive same-agent requests dropping to **54-68% of the bytes** even though
+  `system` and `tools` are byte-identical. It looks damning and it is a red herring:
+  warming the cache with the STRING form and then switching to the LIST form still hit
+  **7/12 (58%)** instead of restarting cold, and `prompt_tok` matched to within ±2
+  (13628/13627/13626/13627). **Both forms tokenize identically** — the chat template
+  normalizes content parts, and `cache_control` (an Anthropic convention) is inert on
+  this endpoint. The byte diff compared JSON, not tokens.
+- **Measuring this cache: ≥20 calls, a unique prefix nonce, and publish the SEQUENCE.**
+  At 6 calls the answer ranges from 0% to 100%: a first sample read 0/3 through the
+  gateway vs 1/3 direct, which nearly became a written-up "the gateway breaks caching"
+  defect — 6 calls per rail then gave 3/6 on BOTH. Reuse the prefix from an earlier
+  measurement and you inherit a warm state while believing you started cold. Report
+  `cache_read_tok / prompt_tok` over the REAL workload, never a synthetic hammered
+  prefix: the two differ by 16x (60% vs 3.7%).
 - **DeepSeek's `/model/info` was FIXED 2026-09-15 — omnis now prefills the safe context
   by itself, and `max_tokens` is the leftover trap.** It used to advertise
   `max_output_tokens: 256000` while the provider rejects anything above **32768**
