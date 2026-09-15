@@ -54,6 +54,23 @@ TASK_PATTERN="${TASK_PATTERN:-}"
 # nested one level deeper. Point TASKS_DIR at tasks/gatekeeper to run that suite.
 TASKS_DIR="${TASKS_DIR:-$KAB_DIR/tasks}"
 CLUSTER_PROVIDER="${CLUSTER_PROVIDER:-kind}"
+# omnis-agent's own default deadline is 600s, which is EXACTLY the harness's
+# per-task timeout (eval.go: `timeout := 10 * time.Minute`). On a stalled
+# session the two fire together, the harness wins the race and SIGKILLs
+# omnis-agent before it can print its `usage` footer or cancel the session — so
+# the task reads as a 10m black hole with no cost accounting and no clue what
+# it was doing. Land the agent first: it then aborts, prints the footer, and
+# deletes its session, leaving a diagnosable record. (Tasks that declare a
+# SHORTER timeout of their own — some gatekeeper tasks say 5m — are still cut
+# off by the harness; this only helps the 10m default the main suite uses.)
+export OMNIS_BENCH_DEADLINE="${OMNIS_BENCH_DEADLINE:-540}"
+# Same collision one layer down: omnis aborts a frozen model stream only after
+# `core/llm/stall.go`'s defaultStreamStallTimeout, which is ALSO 10m — so the
+# harness always kills the task first and the guard's own clear message ("The
+# session has been running for too long without an update") can never be
+# reached. Land the guard well inside the task budget so a frozen upstream
+# becomes a fast, NAMED failure instead of an unexplained 10m black hole.
+export OMNIS_LLM_STREAM_STALL_TIMEOUT="${OMNIS_LLM_STREAM_STALL_TIMEOUT:-120s}"
 # The harness treats --concurrency 0 as "auto" = number of tasks, i.e. it runs
 # EVERY task at once. That is wrong here: the kind path shares ONE cluster + ONE
 # omnis-server, so parallel mutating tasks contend for the single node and flood
@@ -99,6 +116,13 @@ cleanup() {                                   # runs on EXIT; $? holds the exit 
     echo ">> stopping shared omnis-server (pid $SHARED_SERVER_PID)"
     kill "$SHARED_SERVER_PID" 2>/dev/null || true
     wait "$SHARED_SERVER_PID" 2>/dev/null || true
+  fi
+  # Keep the shared server's log: it is the ONLY server-side record of a run,
+  # and rm -rf'ing it with the temp home destroyed the evidence for exactly the
+  # failure it would explain (a session that stalls mid-delegation and dies at
+  # the harness timeout with nothing in the task's own log.txt).
+  if [ -n "$SHARED_SERVER_HOME" ] && [ -f "$SHARED_SERVER_HOME/server.log" ]; then
+    cp "$SHARED_SERVER_HOME/server.log" "$OUTPUT_DIR/shared-server.log" 2>/dev/null || true
   fi
   [ -n "$SHARED_SERVER_HOME" ] && rm -rf "$SHARED_SERVER_HOME"
   if [ "$CLUSTER_PROVIDER" = "kind" ] && [ "${KEEP_CLUSTER:-0}" != "1" ]; then

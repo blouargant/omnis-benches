@@ -21,6 +21,12 @@ task's `verify.sh`.
 that accepts the kubectl-ai flags and drives **omnis over its HTTP API**. Per
 invocation it pins a session to the Kubernetes squad, sends the task, streams the
 SSE, prints the transcript, and exits 0 on success. It is the single entry point.
+Exit codes: **0** finished, **1** did not finish within the deadline, **2** no task on
+stdin, **3** a tool call raised an `ask_user` prompt — nothing here can answer one, so
+the run aborts at the frame (the prompt text goes to stderr) instead of streaming to
+the deadline and being SIGKILLed by the harness, which used to lose the usage footer
+too. The session is deleted on every path, so a shared server does not accumulate one
+per task for the whole run.
 
 Because omnis-server multiplexes many sessions, **[`run.sh`](run.sh) starts ONE
 shared omnis-server for the whole run** (bound to a run-owned shared cluster it
@@ -124,7 +130,13 @@ land in `.build/`; use the harness's `analyze` subcommand for the report. Knobs:
 `CONCURRENCY=N` (tasks in parallel; **default 1 = sequential** — see below),
 `KEEP_CLUSTER=1` (don't delete the cluster), `SHARED_CLUSTER=<name>`,
 `CLUSTER_PROVIDER=vcluster` (falls back to a per-task server per isolated task),
-`TASKS_DIR=<dir>` (see the gatekeeper caveat below).
+`TASKS_DIR=<dir>` (see the gatekeeper caveat below),
+`OMNIS_BENCH_DEADLINE=<s>` (**default 540**, see below).
+
+`run.sh` also copies the shared server's `server.log` to
+`$OUTPUT_DIR/shared-server.log` before deleting its temp home — it is the only
+server-side record of a run, and a session that stalls mid-delegation leaves
+nothing in the task's own `log.txt` to explain itself.
 
 > **`CONCURRENCY` defaults to 1 (sequential).** The upstream harness treats
 > `--concurrency 0` as *"auto = number of tasks"*, i.e. it runs **every task at
@@ -153,7 +165,17 @@ echo "..." | OMNIS_SERVER=http://127.0.0.1:8091 ./omnis-agent --kubeconfig ignor
 
 Env knobs: `OMNIS_SERVER_BIN` (omnis-server binary; default `omnis-server` on
 PATH), `OMNIS_SERVER` (drive an existing server instead of spawning),
-`OMNIS_BENCH_SQUAD` (default `kubernetes`), `OMNIS_BENCH_DEADLINE` (seconds, 600).
+`OMNIS_BENCH_SQUAD` (default `kubernetes`), `OMNIS_BENCH_DEADLINE` (seconds;
+`omnis-agent`'s own default is 600, but **`run.sh` exports 540**).
+
+> **The agent's deadline must land BEFORE the harness's task timeout.** The
+> harness allows 10m per task by default (`eval.go`: `timeout := 10 *
+> time.Minute`), which is exactly `omnis-agent`'s own 600s default. On a stalled
+> session both fire at once, the harness wins and SIGKILLs the agent before it
+> can print its `usage` footer or cancel its session — the task then reads as a
+> 10m black hole with no cost accounting. `run.sh` exports 540 so the agent
+> aborts first and leaves a record. Tasks that declare a *shorter* timeout of
+> their own (some gatekeeper tasks say `5m`) are still cut off by the harness.
 
 ## Caveats / limitations (v1)
 

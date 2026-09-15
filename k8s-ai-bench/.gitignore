@@ -5,3 +5,11 @@
 .smoke-trace.txt
 __pycache__/
 *.pyc
+
+# Agent-written leftovers. A run executes from this directory, so any manifest
+# the squad writes with the Write tool lands here — loose *.yaml plus whole
+# trees (rbac/, k8s-setup/, logs/, hpa/…) and, when a prompt tells an agent to
+# write under $OMNIS_HOME, a directory literally named that (Write does not
+# expand shell variables). Nothing tracked in this directory is a YAML file.
+*.yaml
+$OMNIS_HOME/

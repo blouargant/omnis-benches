@@ -174,6 +174,17 @@ def usage_summary(usage):
     return "\n".join(lines)
 
 
+class AskUserAbort(Exception):
+    """A tool call asked the user to confirm something.
+
+    The harness runs this binary non-interactively, so nothing can ever answer.
+    Streaming on until the deadline turns an unanswerable question into a task
+    timeout that reads like a model failure -- and the harness SIGKILLs us at
+    its own limit, so even the usage footer is lost. Abort at the frame instead
+    and let main() report it.
+    """
+
+
 def consume(resp, out, trace, usage, t0, deadline):
     last_seq = 0
     for seq, ev, d in iter_sse(resp):
@@ -188,6 +199,9 @@ def consume(resp, out, trace, usage, t0, deadline):
             out.write(line); trace.append(line)
         elif ev == "turn_usage":
             note_usage(usage, d)
+        elif ev == "ask_user":
+            raise AskUserAbort(d.get("prompt") or d.get("question")
+                               or d.get("text") or "(no prompt text)")
         elif ev == "done":
             return True, last_seq
         if time.time() - t0 > deadline:
@@ -331,13 +345,16 @@ def main():
                    {"squad": squad, "dir": os.getcwd(), "name": "k8s-ai-bench"})
         sid = sess.get("session_id") or sess.get("id")
         trace, usage, t0, done, last_seq = [], {}, time.time(), False, 0
+        asked = None
         try:
             resp = _req("POST", base, f"/api/sessions/{sid}/messages", token,
                         {"prompt": prompt}, timeout=deadline)
             done, last_seq = consume(resp, sys.stdout, trace, usage, t0, deadline)
+        except AskUserAbort as e:
+            asked = str(e)
         except (urllib.error.URLError, ConnectionError, TimeoutError):
             pass
-        while not done and time.time() - t0 < deadline:
+        while asked is None and not done and time.time() - t0 < deadline:
             try:
                 resp = _req("GET", base,
                             f"/api/sessions/{sid}/messages/stream?from={last_seq}",
@@ -346,6 +363,8 @@ def main():
                     done = True
                     break
                 done, last_seq = consume(resp, sys.stdout, trace, usage, t0, deadline)
+            except AskUserAbort as e:
+                asked = str(e)
             except (urllib.error.URLError, ConnectionError, TimeoutError):
                 time.sleep(1)
         if not done:
@@ -365,7 +384,17 @@ def main():
                         f.write("\n\n--- " + summary + "\n")
             except OSError:
                 pass
+        # run.sh drives every task through ONE shared server, so a session left
+        # open is state that outlives the task and accumulates for the whole run.
+        try:
+            api("DELETE", base, f"/api/sessions/{sid}", token)
+        except Exception:
+            pass
         sys.stdout.write("\n")
+        if asked is not None:
+            print("omnis-agent: aborted - a tool call asked the user to confirm, "
+                  "and nothing here can answer: " + asked, file=sys.stderr)
+            return 3
         return 0 if done else 1
     finally:
         if proc is not None:

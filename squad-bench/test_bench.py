@@ -6,6 +6,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -860,3 +861,80 @@ class TestFetchAnomalyVolumeFloor(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _sse(*frames):
+    """Build an SSE byte-line stream: each frame is (seq, event, data-dict)."""
+    out = []
+    for seq, ev, data in frames:
+        if seq is not None:
+            out.append(f"id: {seq}".encode())
+        out.append(f"event: {ev}".encode())
+        out.append(("data: " + json.dumps(data)).encode())
+        out.append(b"")
+    return out
+
+
+class TestAskUserAborts(unittest.TestCase):
+    """Neither bench can ever answer an `ask_user` prompt, so waiting for one is
+    always dead time — it burns the whole deadline and reports `cancelled`, which
+    reads like a model failure. The run must stop the instant the frame arrives
+    and say so."""
+
+    def test_ask_user_frame_stops_the_stream_and_marks_the_status(self):
+        m = bench.fresh()
+        stream = _sse(
+            (1, "token", {"text": "hello"}),
+            (2, "ask_user", {"prompt": "delete pod foo?"}),
+            (3, "token", {"text": "never consumed"}),
+        )
+        done = bench.consume(stream, m, {}, time.time(), 300)
+        self.assertTrue(done, "must stop consuming, not fall through to a reconnect")
+        self.assertEqual(m["status"], "ask_user")
+        self.assertEqual(m["ask_user"], 1)
+        self.assertEqual(m["token_events"], 1,
+                         "frames after the prompt must not be folded in")
+
+    def test_ask_user_stops_the_reconnect_loop(self):
+        m = bench.fresh()
+        calls = []
+
+        def fake_req(method, base, path, token, body=None, timeout=None):
+            calls.append((method, path))
+            return _sse((1, "ask_user", {"prompt": "confirm?"}))
+
+        with mock.patch.object(bench, "_req", fake_req):
+            done = bench.run_one_turn("http://x", "", "sid", "p", m, {}, 2)
+        self.assertTrue(done)
+        self.assertEqual(len(calls), 1,
+                         "must not reconnect after an unanswerable prompt")
+        self.assertEqual(m["status"], "ask_user")
+
+    def test_a_multi_turn_task_does_not_send_the_next_prompt(self):
+        """consume() returns True on ask_user so the reconnect loop stops, but
+        `True` also means "turn finished" to run_task — a multi-turn task would
+        happily push the next prompt into a session that is sitting on an
+        unanswerable question."""
+        posts = []
+
+        def fake_req(method, base, path, token, body=None, timeout=None):
+            if path.endswith("/messages"):
+                posts.append(body["prompt"])
+                return _sse((1, "ask_user", {"prompt": "confirm?"}))
+            return _sse()
+
+        calls = []
+
+        def fake_api(method, base, path, token, body=None):
+            calls.append((method, path))
+            return {"session_id": "s1"}
+
+        task = {"id": "t", "squad": "x", "prompts": ["first", "second"]}
+        with mock.patch.object(bench, "_req", fake_req), \
+             mock.patch.object(bench, "api", fake_api):
+            m = bench.run_task("http://x", "", task, {}, 2, False, os.getcwd())
+
+        self.assertEqual(posts, ["first"], "the second prompt must never be sent")
+        self.assertEqual(m["status"], "ask_user")
+        self.assertTrue(any(p.endswith("/cancel") for _, p in calls),
+                        "the session is left waiting; cancel it")

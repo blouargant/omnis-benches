@@ -207,6 +207,12 @@ def consume(resp, m, agents, t0, deadline):
             note_model(m, d)
         elif ev == "ask_user":
             m["ask_user"] += 1
+            # The bench can never answer a prompt, so streaming on only burns the
+            # deadline and then reports `cancelled` — which reads like a model
+            # failure instead of "a tool call asked for confirmation". Stop here
+            # and name it. Returning True also stops run_one_turn reconnecting.
+            m["status"] = "ask_user"
+            return True
         elif ev == "done":
             m["status"] = "done"
             return True
@@ -306,9 +312,17 @@ def run_task(base, token, task, agents, deadline, keep, cwd_override):
         mark = len(m["_answer_parts"])
         done = run_one_turn(base, token, sid, prompt, m, agents, deadline)
         m["answers"].append("".join(m["_answer_parts"][mark:]).strip())
-        if not done:
+        if not done or m["status"] == "ask_user":
             break
-    if not done:
+    if m["status"] == "ask_user":
+        # The turn "finished" only in the sense that we stopped listening. The
+        # session is still sitting on the prompt, so release it — and keep the
+        # status, which says far more than `cancelled` would.
+        try:
+            api("POST", base, f"/api/sessions/{sid}/cancel", token, {})
+        except Exception:
+            pass
+    elif not done:
         m["status"] = "timeout"
         try:
             api("POST", base, f"/api/sessions/{sid}/cancel", token, {})

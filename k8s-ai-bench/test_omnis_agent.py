@@ -13,8 +13,12 @@ Run: python3 -m unittest discover -s k8s-ai-bench -v
 (or directly: python3 k8s-ai-bench/test_omnis_agent.py)
 """
 import importlib.util
+import time
+import json
+import io
 import os
 import unittest
+from unittest import mock
 from importlib.machinery import SourceFileLoader
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -118,3 +122,95 @@ class TestNoteUsageCacheBilling(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _sse(*frames):
+    """Build an SSE byte-line stream: each frame is (seq, event, data-dict)."""
+    out = []
+    for seq, ev, data in frames:
+        if seq is not None:
+            out.append(f"id: {seq}".encode())
+        out.append(f"event: {ev}".encode())
+        out.append(("data: " + json.dumps(data)).encode())
+        out.append(b"")
+    return out
+
+
+class TestAskUserAborts(unittest.TestCase):
+    """omnis-agent can never answer an `ask_user` prompt: the harness runs it
+    non-interactively with stdin already consumed. Streaming on until the
+    deadline turns an unanswerable question into a 10-minute task timeout that
+    reads like a model failure. Abort the moment the frame arrives."""
+
+    def test_ask_user_frame_raises_abort(self):
+        mod = _load_omnis_agent()
+        stream = _sse(
+            (1, "token", {"text": "hi"}),
+            (2, "ask_user", {"prompt": "delete pod foo?"}),
+        )
+        with self.assertRaises(mod.AskUserAbort):
+            mod.consume(stream, io.StringIO(), [], {}, time.time(), 300)
+
+    def test_the_abort_carries_the_prompt_so_the_operator_sees_what_was_asked(self):
+        mod = _load_omnis_agent()
+        stream = _sse((1, "ask_user", {"prompt": "delete pod foo?"}))
+        with self.assertRaises(mod.AskUserAbort) as ctx:
+            mod.consume(stream, io.StringIO(), [], {}, time.time(), 300)
+        self.assertIn("delete pod foo?", str(ctx.exception))
+
+    def test_main_reports_the_prompt_and_exits_on_its_own_code(self):
+        """A traceback is not an acceptable way to say 'someone asked a question'
+        (the script applies that rule to unreadable hook input already), and the
+        exit code must be distinguishable from 'the run simply did not finish'."""
+        mod = _load_omnis_agent()
+        stream = _sse((1, "ask_user", {"prompt": "delete pod foo?"}))
+        err = io.StringIO()
+        env = {"OMNIS_SERVER": "http://x", "OMNIS_BENCH_DEADLINE": "5"}
+        with mock.patch.object(mod, "api", lambda *a, **k: {"session_id": "s1"}), \
+             mock.patch.object(mod, "_req", lambda *a, **k: stream), \
+             mock.patch.object(mod, "kubeconfig_context", lambda _p: "ctx"), \
+             mock.patch.object(mod.sys, "stdin", io.StringIO("fix the deployment")), \
+             mock.patch.object(mod.sys, "stderr", err), \
+             mock.patch.object(mod.sys, "argv", ["omnis-agent"]), \
+             mock.patch.dict(mod.os.environ, env, clear=False):
+            mod.os.environ.pop("OMNIS_SHARED_CONTEXT", None)
+            rc = mod.main()
+        self.assertEqual(rc, 3, "ask_user needs its own exit code, not 1")
+        self.assertIn("delete pod foo?", err.getvalue())
+
+
+class TestSessionCleanup(unittest.TestCase):
+    """run.sh drives 24 tasks through ONE shared server. Each omnis-agent call
+    opens a session and never closed it, so they piled up for the whole run."""
+
+    def _run_main(self, stream):
+        mod = _load_omnis_agent()
+        calls = []
+
+        def fake_api(method, base, path, token, body=None):
+            calls.append((method, path))
+            return {"session_id": "s1"}
+
+        env = {"OMNIS_SERVER": "http://x", "OMNIS_BENCH_DEADLINE": "5"}
+        with mock.patch.object(mod, "api", fake_api), \
+             mock.patch.object(mod, "_req", lambda *a, **k: stream), \
+             mock.patch.object(mod, "kubeconfig_context", lambda _p: "ctx"), \
+             mock.patch.object(mod.sys, "stdin", io.StringIO("do a thing")), \
+             mock.patch.object(mod.sys, "stderr", io.StringIO()), \
+             mock.patch.object(mod.sys, "argv", ["omnis-agent"]), \
+             mock.patch.dict(mod.os.environ, env, clear=False):
+            mod.os.environ.pop("OMNIS_SHARED_CONTEXT", None)
+            rc = mod.main()
+        return rc, calls
+
+    def test_the_session_is_deleted_when_the_task_finishes(self):
+        rc, calls = self._run_main(_sse((1, "done", {})))
+        self.assertEqual(rc, 0)
+        self.assertTrue(any(m == "DELETE" and p.endswith("/s1") for m, p in calls),
+                        f"session left open on the shared server; calls={calls}")
+
+    def test_the_session_is_deleted_even_when_a_prompt_aborts_the_run(self):
+        rc, calls = self._run_main(_sse((1, "ask_user", {"prompt": "confirm?"})))
+        self.assertEqual(rc, 3)
+        self.assertTrue(any(m == "DELETE" and p.endswith("/s1") for m, p in calls),
+                        f"session left open after an abort; calls={calls}")

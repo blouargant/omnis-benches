@@ -259,9 +259,15 @@ then scoring with the task's `verify.sh` on an ephemeral kind cluster.
   hot-reloadable), and **always verify the recorded per-tier price actually
   changed** (each record's `models` block carries in/out `$/M`) before trusting a
   sweep — a silent no-op swap makes every tier look identical.
-- **squad-bench never answers `ask_user`.** So a tool call that raises a
-  permission prompt hangs to the deadline — and, conversely, **no mutation can
-  execute** (the bench can't approve it). For cluster-touching squad-bench tasks,
+- **squad-bench never answers `ask_user` — and now fails fast instead of hanging.**
+  A tool call that raises a permission prompt used to burn the whole deadline and
+  come back as `cancelled`, which reads like a model failure. Since 2026-09-05 the
+  first `ask_user` frame **aborts the run**: `consume` stops the stream, `status`
+  becomes **`ask_user`** (a new value alongside `done`/`timeout`/`cancelled`/`error`),
+  a multi-turn task does not send its remaining prompts, and the session is
+  cancelled. Measured end-to-end: 2 s instead of a 240 s deadline. `omnis-agent`
+  does the same and exits **3** with the prompt text on stderr. Conversely **no
+  mutation can execute** (the bench can't approve it). For cluster-touching squad-bench tasks,
   gate the omnis server: hard-deny mutations + broadly allow reads (incl.
   `Bash(*)`) so nothing hangs and the cluster stays read-only. (k8s-ai-bench is
   different: it *wants* mutation, hence `bypassPermissions` + a throwaway kind
@@ -335,3 +341,212 @@ then scoring with the task's `verify.sh` on an ephemeral kind cluster.
   `reports/gateway-balanced-tool-calling-2026-08-13.md`. Lesson for benching: when a
   model suddenly "narrates instead of acting", run `model-probe` against the endpoint
   **and** the same model direct at its provider before blaming the squad or the model.
+- **A model's `context_length` must leave room for the output reservation — the
+  shipped `balanced` value does not.** omnis asks for `max_completion_tokens` on
+  top of the prompt, and the provider validates the *sum* against its context
+  window. Scaleway serves `deepseek-v4-flash-0731` and `qwen3.6-35b-a3b` (=
+  `Balanced`) at **262144** tokens with a **32768** output cap (`qwen3.5-397b-a17b`
+  = `High`: 16384; `gemma-4-26b-a4b-it` = `Simple`: 32768) — provoke the numbers
+  cheaply with an unbilled validation error: POST `/chat/completions` with
+  `max_tokens: 9999999` and read the 400. `/etc/omnis/models.json` declares
+  `balanced.context_length: 256000`, leaving only 6144 tokens of headroom for a
+  32768-token output — so a full-window turn fails with `400 … maximum context
+  length is 262144 … you requested 32768 output tokens`. The safe value is
+  **229376** (262144 − 32768). Latent in production: it only fires when an agent
+  actually fills its window (observed on a runaway `web-deep-ds7` run). Verified
+  2026-09-01, `reports/deepseek-v4-flash-scaleway-2026-09-01.md`.
+- **Override models.json with a `.agents/` dir in the bench server's CWD — never by
+  editing `~/.omnis/models.json`.** `loadModelsConfig` calls
+  `configedit.MergedBytes`, which **deep-merges every layer** of the chain
+  (`.agents` → `$OMNIS_HOME` → `/etc/omnis`), and `.agents` is CWD-relative and
+  highest-precedence. So launching a dedicated `omnis-server` from a temp dir
+  holding just `.agents/models.json` adds providers/models and flips
+  `override_model_ref` **without touching the user's config** and without the
+  `OMNIS_HOME` trap (which would also move `registry/agents`, silently swapping the
+  very agents under test). Keep `HOME` unchanged so `~/.omnis/registry/agents` is
+  what gets benched. Run the server in the **foreground** (`OMNIS_SERVER_ADDR=
+  127.0.0.1:<port>`): `$OMNIS_HOME/omnis-server.pid` is written only by the
+  `omnis-server start` daemon path, so a foreground instance never collides with a
+  dev server the user already has running.
+- **Scaleway direct is the honest rail for comparing gateway `scaleway/*` tiers.**
+  `Balanced`/`High`/`Simple` are Scaleway routes, so re-measuring them at
+  `SCALEWAY_API_BASE_URL` gives the same network path as a candidate Scaleway model
+  **and escapes the gateway's response cache** — `--repeat` yields real samples
+  there, unlike through the gateway. The gateway applies a flat **EUR→USD ×1.05
+  with no markup** on Scaleway models (checked rung by rung against Scaleway's
+  public grid), so prices measured on the direct rail transfer to gateway economics
+  unchanged. Note Scaleway prices prompt-cache reads **only for deepseek** — the
+  qwen tiers report `cache_read_tok: 0` across a whole campaign, so omitting
+  `cached_input_token_price_per_million` for them is faithful, not a config gap.
+- **`OMNIS_CONFIG_PATH` in the ambient shell silently disables config merging for
+  `agents.json` — and with it the paid search backend.** The user profile exports
+  `OMNIS_CONFIG_PATH=/etc/omnis/agents.json` (the dev server on :8081 carries it
+  too). That is omnis's **explicit bypass**: `loadRuntimeConfig` reads that one
+  file *verbatim* and skips `configedit.MergedBytes` entirely, so `~/.omnis/agents.json`
+  never contributes. `/etc/omnis/agents.json` declares no `serper_key` (only the
+  user layer does), so a bench server inherits **no Serper backend** and web
+  agents fall back to DuckDuckGo — surfacing as `deadline exceeded` / `timeout`
+  in `subagent_errors`, which `campaign.mark_search_degraded` then flags. It also
+  means custom squads dropped into a `.agents/agents.json` are **ignored**
+  (observed: `editor-solo`/`cleaner-solo` absent from `/api/squads` and rejected
+  by `POST /api/sessions`). Before any bench, either export
+  `OMNIS_CONFIG_PATH=<your agents.json>` or unset it so the chain merges. `SERPER_KEY`
+  is also missing from the root `.env` and should be added (CLAUDE.md mandates the
+  root-`.env` mechanism), **but adding it alone does not fix this** — the variable
+  was present in the environment and still unread. Diagnosed 2026-09-01;
+  `reports/deepseek-v4-flash-scaleway-2026-09-01.md` §10 records the campaign it
+  invalidated. Note `models.json` and `permissions.json` have no such bypass — they
+  merge normally, which is why a `.agents/models.json` tier override works while a
+  `.agents/agents.json` squad addition does not.
+- **A k8s-ai-bench run drops agent-written manifests into the repo working copy.**
+  `run.sh` executes from `k8s-ai-bench/`, so that is the agent's CWD, and any
+  manifest the squad writes with the Write tool lands there — a 24-task run left
+  `pod1.yaml`, `hpa-web-app.yaml`, `communication-pod.yaml` and
+  `create-simple-rbac-rbac.yaml` as untracked files. They are not in
+  `k8s-ai-bench/.gitignore` (which only covers `.build/`, `.bench-home/`,
+  `.k8s-ai-bench/`, `__pycache__/`), so they show up in `git status` and are easy
+  to commit by accident. Sweep them after a run, or add `*.yaml` to that
+  `.gitignore` — nothing tracked in that directory is a YAML file.
+- **To sweep a model tier through k8s-ai-bench, inject the config with
+  `OMNIS_SYSTEM_CONFIG_DIR`, not `.agents/` or `OMNIS_HOME`.** `run.sh` owns the
+  shared server's `OMNIS_HOME` (`mktemp -d`, into which it copies only
+  `bench-permissions.json`), so there is no user layer to write into, and its CWD
+  is the `k8s-ai-bench/` dir inside the repo. Point `OMNIS_SYSTEM_CONFIG_DIR` at a
+  `cp -a` of `/etc/omnis` with a patched `models.json`: it replaces only the system
+  layer, leaves `.agents` and `$OMNIS_HOME` intact, carries the `registry/` the
+  `k8s_*` agents resolve from, needs no edit to `run.sh`, and reaches both the
+  shared server and the per-task isolation servers. Verify the swap from each
+  task's `log.txt`: the `omnis-agent: usage` footer has no `$/M` column, so
+  **recompute** each agent's cost from its own retained `prompt`/`cache_read`/`out`
+  counts and compare with the printed `~$` (cache-aware:
+  `(prompt-cache)*in + cache*cache_in + out*out`). Give each tier a **fresh kind
+  cluster** — `run.sh` deletes it on exit unless `KEEP_CLUSTER=1`, so plain
+  sequential invocations already do the right thing; reusing one would carry the
+  previous tier's mutations into the next tier's `setup.sh`/`verify.sh`.
+- **`omnis-agent`'s deadline must land BEFORE the harness's task timeout, or a
+  stall is unaccounted.** Both defaulted to the same value — `omnis-agent`'s
+  `OMNIS_BENCH_DEADLINE` is 600s and the harness allows 10m (`eval.go`:
+  `timeout := 10 * time.Minute`) — so on a stalled session they fire together,
+  the harness wins the race and SIGKILLs the agent before its cleanup path runs.
+  Signature: `results.yaml` says `task timed out after 10m0s`, `log.txt` ends
+  mid-sentence (typically right after the leader announces a delegation), there
+  is **no `omnis-agent: usage` footer**, and the task contributes **$0** to the
+  campaign total — which silently makes the run look cheaper. `run.sh` now
+  exports **540**; tasks declaring a shorter timeout of their own (gatekeeper's
+  `5m`) are still cut off by the harness. Observed 2026-09-06: 3 of 24 tasks.
+- **A zero-cost task is not a cheap task — never compare campaign totals without
+  pairing.** Because a killed task contributes $0, a run with more stalls reads
+  as *less expensive*. The 2026-09-06 arm C total ($3.98 vs $4.37) was almost
+  entirely this artefact: paired over the 21 tasks that produced a footer in
+  both arms, cost moved −2% and Pass@1 was identical (19 vs 19). Compare only
+  tasks with a footer on both sides.
+- **`run.sh` used to `rm -rf` the shared server's log with its temp home.** It is
+  the only server-side record of a run, and it was destroyed at exit — precisely
+  for the failure it would explain (a session stalling mid-delegation leaves
+  nothing in the task's own `log.txt`). It is now copied to
+  `$OUTPUT_DIR/shared-server.log` before the home is removed.
+- **MEASURED at identical config: this suite flips 5 of 24 verdicts and swings
+  its behavioural counters 15-36% with NOTHING changed.** Two 24-task runs of
+  the *same* binary, hook, instruction and model override (2026-09-06, arms C
+  and C2, verified file by file before each launch), paired over the 21 tasks
+  with a footer in both: delegations **−15%**, `kubectl diff` **−29%**,
+  `kubectl apply` **−36%**, cost +9%, Pass@1 identical (19/19) while the raw
+  Pass@1 read 19 vs 21. Flipping verdicts: `create-pod`, `fix-pending-pod`,
+  `fix-service-routing`, `resize-pvc`, `statefulset-lifecycle`. Per-task
+  durations swing as much (`debug-app-logs` 297s→88s, `scale-deployment`
+  63s→156s). **Consequence: at k=1 nothing below ~1.4x on a behavioural counter
+  or ±2 tasks on Pass@1 is resolvable.** Two casualties on record: a −45%
+  delegation effect from a 4-task probe (the reviewer-dry-run hook fix)
+  vanished at suite scale, and the A/B's "+26% delegations" (x1.26) does not
+  clear the x1.18 same-config swing — only its `diff` x2.28 does. Always (1)
+  **pair** — a killed task has no footer and counts $0, so the run that stalls
+  most looks cheapest; (2) **repeat**; (3) never let a small probe size a gain,
+  only establish that a code path activates. The validator's own tool traffic is
+  also **invisible in `log.txt`** (only the leader/editor stream reaches the
+  harness's stdout), so measuring guard behaviour needs an instrumented hook
+  trace, not log greps.
+- **`fix-oomkilled` is disabled upstream** (`Skipping disabled task` in the run
+  log), so the main k8s-ai-bench suite scores **24 tasks, not 25**. Use 24 as the
+  denominator when quoting Pass@1, and don't chase the "missing" task.
+- **FIXED 2026-09-05 (omnis `3b5dd17`), kept because the signature is worth
+  recognising: a sub-agent's `max_instances` semaphore used to be shared by every
+  session on the server, so one stuck invocation starved all later sessions.** Found 2026-09-05 on
+  the k8s change-validation layer and it invalidates a whole k8s-ai-bench run.
+  `k8s_validator` declares `"max_instances": 1`; `build_subagents.go:295` wraps it
+  in `newConcurrentAgentTool`, whose semaphore is `make(chan struct{}, max)`
+  (`concurrent_agent_tool.go:67`). `acquire` **queues** rather than rejecting, and
+  the release is a `defer` that an `inner.Run` which never returns never reaches.
+  Crucially the scope is per **config generation**, not per session:
+  `instance.go:143` builds `Squads map[string]*SquadInstance` once. k8s-ai-bench
+  deliberately runs ONE shared server for all 24 tasks, so a single held token
+  makes every later Kubernetes **mutation** block to the harness's 10m task
+  timeout. Signature to recognise it: tasks succeed in run order until some rank,
+  then EVERY mutating task times out at exactly `10m0s` with **zero**
+  `[tool] k8s_validator` in `log.txt` and no `omnis-agent: usage` footer, while a
+  read-only task (`list-images-for-pods`) keeps passing in the middle of the
+  block. Cutover was task #10 (deepseek), #2 (balanced), #1 (high) — the rank
+  decides the score, not the model. Contre-épreuve: the same `fix-crashloop` that
+  times out at 10m in-campaign passes in **2m21s** against a fresh server. Do not
+  read a model comparison out of such a run. **The fix makes the semaphore per
+  session** (`concurrent_agent_tool.go` keys a `sessionSem` per session and prunes
+  the map), so what keeps it contained is the harnesses' one-session-per-test
+  shape: `bench.py`'s `run_task` opens AND deletes a session per run (per
+  `--repeat` sample too), and `omnis-agent` opens one per invocation and now
+  deletes it on every exit path. **Keep it that way** — a harness that reused a
+  session across tests would rebuild the starvation inside that session. Full
+  diagnosis of the original bug:
+  `reports/omnis-k8s-validator-starvation-2026-09-05.md`.
+- **The k8s validation hook is NOT a measurable cost — don't blame it.** Measured
+  by wrapping `/etc/omnis/hooks/k8s-validate.py` in a timing shim inside an
+  `OMNIS_SYSTEM_CONFIG_DIR` copy (the hook command is
+  `${OMNIS_SYSTEM_CONFIG_DIR:-/etc/omnis}/hooks/k8s-validate.py`, so a relocated
+  copy is picked up automatically): **65 invocations, 4.4s total, 3% of a 141s
+  task, slowest single call 0.13s.** When a k8s run gets slow, instrument before
+  accusing the guard.
+- **The k8s guard's three headless blockers were fixed 2026-09-05; a bench must
+  still declare itself.** Set **`OMNIS_NON_INTERACTIVE=1`** on any unattended run:
+  `canEscalate` (`agent/hooks_ask.go`) then makes a hook escalation a terminal
+  block ("this run is unattended") instead of an `ask_user` card nobody resolves.
+  The other two fixes removed the refusals upstream, so in practice the env var
+  never fires — measured 0 escalations over 72 tasks, against 11 the run before:
+  `CONTAINER_ACCESS_VERBS` ("exec", "attach", "cp") now proves the INNER command
+  read-only (`kubectl exec … -- cat f` allows, `-- sh -c '…'` and `attach -i`
+  still refuse), and a `diff` that fails on a missing namespace now appends the
+  remedy instead of dead-ending. Verify all three against a live cluster before a
+  campaign — the hook's decisions depend on the cluster, so a probe without one
+  gives false denies.
+- **`create-pod`'s upstream `verify.sh` string-matches the image**, so
+  `image: nginx:latest` fails where bare `nginx` passes — and the validation layer
+  made every model write the explicit tag, because binding attestations to
+  manifest CONTENT pushes agents from imperative commands to manifests. All three
+  tiers failed it on 2026-09-06 for that reason alone. Score it as a task defect,
+  not a model one, and use 22 as the discriminating denominator alongside
+  `setup-dev-cluster`, which no tier has ever passed.
+- **`--dry-run` is not a read path under the k8s guard.** `kubectl diff` is
+  allowed; `kubectl apply --dry-run=server`, `kubectl apply --server-side
+  --dry-run=server` and `helm upgrade --dry-run` are all denied (the last one
+  demands a `k8s_validator` attestation). That is the inverted rule working as
+  designed — prove read-only or refuse — but `k8s_editor`'s own description still
+  promises "previews every change with kubectl/helm diff and dry-run", which is
+  now half true. A model noticed mid-task: "The hook is flagging `kubectl apply`
+  even for dry-run".
+- **`README-kubernetes.md`'s permission snippet has two defects (both fixed
+  2026-09-05, both latent since July).** (1) `permissions.ask` is a `valueList`,
+  so layers **concatenate**: `"ask": []` removes nothing and `/etc/omnis`'s 33 ask
+  rules — `Bash(rm *)` among them — stay live. squad-bench never answers
+  `ask_user`, so an agent that writes then deletes a temp manifest hangs to the
+  deadline. Use the `permissions.ask_removed` tombstone (removes by deep-equal)
+  seeded from `/etc/omnis/permissions.json`'s own `ask` list. The k8s validation
+  layer makes this fire often because it binds attestations to manifest CONTENT,
+  pushing agents through files. (2) The deny regex `\bkubectl\b[^|;&]*\b(…|debug|
+  …)\b` matches `debug` INSIDE `tmp-debug-shell` / `debug-probe` / `debug-cm` (the
+  hyphen is a word boundary), denying the very reads `clean-identify` /
+  `clean-suspect` exist to perform. Require a literal space before the verb —
+  `[^|;&]*\s(verb)(\s|$)` — since RE2 has no lookbehind. Verified: all 4 real
+  mutations still denied, all 3 reads pass.
+- **Agents leave files in the bench's CWD, including a literal `$OMNIS_HOME/`
+  directory.** omnis's own sub-agent briefing prompt tells agents to write briefs
+  to `$OMNIS_HOME/logs/brief_<topic>.md`, but the Write tool does not expand shell
+  variables, so a directory literally named `$OMNIS_HOME` appears in the working
+  copy (seen holding `hpa-web-app.yaml` and `logs/reader-role*.yaml`). Sweep it
+  along with the stray `*.yaml` manifests after every k8s run.

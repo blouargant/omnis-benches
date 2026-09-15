@@ -59,7 +59,7 @@ weak models" below): change the agent's `instruction.md`, reload/reinstall, re-r
 
 | Field | Meaning |
 |---|---|
-| `status` | `done` / `timeout` / `cancelled` / `error` |
+| `status` | `done` / `ask_user` / `timeout` / `cancelled` / `error` |
 | `wall_ms`, `ttfb_ms` | total time; time to first `token`/`message` frame |
 | `token_events` | # of streamed `token` frames — **high ⇒ streams token-by-token; 1–3 ⇒ coarse/buffered/non-streaming** |
 | `delegations` | `{agent: count}` the leader delegated to (a sub-agent tool call) |
@@ -69,7 +69,7 @@ weak models" below): change the agent's `instruction.md`, reload/reinstall, re-r
 | `models` | `{agent: {in$/M, out$/M, prompt_tok, out_tok, cache_read_tok, calls, est_cost_usd}}` — see the cache-billing note below |
 | `total_cost_usd` | summed estimate across all agents in the turn |
 | `subagent_errors` | sub-agent results that were empty or carried an error (`deadline exceeded`, `timeout`, `"error"`) |
-| `ask_user` | # of permission prompts (want **0** for a squad whose read-only members are allow-listed) |
+| `ask_user` | # of permission prompts (want **0** for a squad whose read-only members are allow-listed). **The first one aborts the run**: the bench can never answer, so the record comes back with `status: "ask_user"` in seconds instead of burning the deadline and reporting `cancelled`. A multi-turn task does not send its remaining prompts, and the session is cancelled. |
 | `correct` | if the task has `expect`, whether the final answer matched |
 | `quality_gate` | layer-1 verdict: every `required` fact found **and** no `forbidden` rule hit. `null` when the task declares neither. |
 | `facts` | `{found[], missing[], required, optional_found[]}` from the task's `facts` list |
