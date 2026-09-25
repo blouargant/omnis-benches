@@ -938,3 +938,42 @@ class TestAskUserAborts(unittest.TestCase):
         self.assertEqual(m["status"], "ask_user")
         self.assertTrue(any(p.endswith("/cancel") for _, p in calls),
                         "the session is left waiting; cancel it")
+
+
+class TestTopLevelPatchAndEnvExpansion(unittest.TestCase):
+    """token_optimization campaign support: a patch without "agent" sets a
+    section-level key, and ${VAR} in cwd / variant values is expanded."""
+
+    def test_top_level_patch_sets_key_without_touching_agents(self):
+        cfg = {"agents": [{"name": "leader"}], "token_optimization": False}
+        out = variants.apply_patch(cfg, {"key": "token_optimization", "value": True})
+        self.assertIs(out["token_optimization"], True)
+        self.assertIs(cfg["token_optimization"], False, "apply_patch must not mutate")
+        self.assertEqual(out["agents"], cfg["agents"])
+
+    def test_verify_reports_unapplied_top_level_key(self):
+        sw = variants.Switcher("http://x", "")
+        with mock.patch.object(sw, "_get", return_value={"token_optimization": False}):
+            bad = sw.verify({"patches": [{"key": "token_optimization", "value": True}]})
+        self.assertEqual(len(bad), 1)
+
+    def test_variant_values_expand_env(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            json.dump({"variants": [{"id": "TL", "patches": [
+                {"key": "bash_output_filters_dir", "value": "${TOKOPT_DIR}/f"}]}]}, f)
+        with mock.patch.dict(os.environ, {"TOKOPT_DIR": "/tmp/t"}):
+            v = variants.load_variants(f.name)
+        self.assertEqual(v["TL"]["patches"][0]["value"], "/tmp/t/f")
+
+    def test_unset_variable_fails_loudly(self):
+        env = {k: v for k, v in os.environ.items() if k != "TOKOPT_DIR"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            with self.assertRaises(SystemExit):
+                bench.prepare_cwd({"id": "t", "cwd": "${TOKOPT_DIR}/x"}, None)
+            with self.assertRaises(SystemExit):
+                variants._expand("${TOKOPT_DIR}/x")
+
+    def test_cwd_expands_env(self):
+        with mock.patch.dict(os.environ, {"TOKOPT_DIR": "/srv/fx"}):
+            cwd, tmp = bench.prepare_cwd({"id": "t", "cwd": "${TOKOPT_DIR}/gofail"}, None)
+        self.assertEqual((cwd, tmp), ("/srv/fx/gofail", None))

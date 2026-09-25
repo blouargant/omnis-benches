@@ -1,0 +1,77 @@
+{
+ "_comment": "token_optimization A/B (2026-09-25): Bash-heavy tasks whose commands hit the (since removed) omnis bash output filters. Run ./setup-tokopt.sh first and export TOKOPT_DIR. Ground truth is pinned to omnis@f2b3cf7 (git tasks) and the kubeadm test cluster state on 2026-09-25 (160 pods, node3 allocatable 16273216Ki) \u2014 re-derive expects if either changes. See README-tokopt.md.",
+ "tasks": [
+  {
+   "id": "git-nth",
+   "squad": "coding",
+   "cwd": "${TOKOPT_DIR}/omnis-clone",
+   "kind": "bash-git",
+   "prompt": "Using git from the shell in this repository, what are the short hash and the subject of the 25th most recent commit (HEAD counts as the 1st)? Read-only, do not modify anything.",
+   "expect": "/8a8d6f1/"
+  },
+  {
+   "id": "git-diff-files",
+   "squad": "coding",
+   "cwd": "${TOKOPT_DIR}/omnis-clone",
+   "kind": "bash-git",
+   "prompt": "Look at the full diff between HEAD~3 and HEAD in this repository (use git diff in the shell). List EVERY file that changed and summarise in one line what changed in each file. Read-only.",
+   "expect": "/omnis\\.wxs/"
+  },
+  {
+   "id": "go-test-count",
+   "squad": "coding",
+   "cwd": "${TOKOPT_DIR}/omnis-clone",
+   "kind": "bash-go",
+   "prompt": "Run the Go tests of ./internal/budget/ and ./internal/goal/ with `go test` in the shell and tell me exactly how many top-level test functions passed and how many failed in total. Do not modify any file.",
+   "expect": "/\\b20\\b/"
+  },
+  {
+   "id": "k8s-pod-count",
+   "squad": "kubernetes",
+   "cwd": "",
+   "kind": "bash-k8s",
+   "prompt": "How many pods exist in total across all namespaces of the cluster, and are any pods NOT in Running or Completed state? Use kubectl (current context). Read-only: do not change anything in the cluster.",
+   "expect": "/\\b160\\b/"
+  },
+  {
+   "id": "k8s-node-alloc",
+   "squad": "kubernetes",
+   "cwd": "",
+   "kind": "bash-k8s",
+   "prompt": "What are the allocatable memory and the kernel version of node node3? Use kubectl (current context). Read-only: do not change anything in the cluster.",
+   "expect": "/16273216|15[.,]5\\d?\\s*gi/"
+  },
+  {
+   "id": "go-fail",
+   "squad": "coding",
+   "cwd": "${TOKOPT_DIR}/gofail",
+   "kind": "bash-go",
+   "prompt": "Run this Go package's tests with `go test` in the shell. Which test fails, at which file:line, and what is the root cause in the code? Read-only: do not modify any file.",
+   "expect": "/\\bMul\\b/"
+  },
+  {
+   "id": "rust-fail",
+   "squad": "coding",
+   "cwd": "${TOKOPT_DIR}/rs",
+   "kind": "bash-cargo",
+   "prompt": "Run `cargo test` in this Rust crate. Which test fails and what are the left and right values of the failing assertion? Read-only: do not modify any file.",
+   "expect": "/left\\W{0,6}4[\\s\\S]{0,80}right\\W{0,6}5|4\\D{1,30}5/"
+  },
+  {
+   "id": "npm-deps",
+   "squad": "coding",
+   "cwd": "${TOKOPT_DIR}/js",
+   "kind": "bash-npm",
+   "prompt": "Using npm in the shell, list the packages installed at the top level of this Node project with their exact installed versions. Read-only: do not modify any file.",
+   "expect": "/express\\W{0,12}5\\.2\\.1/"
+  },
+  {
+   "id": "pip-ver",
+   "squad": "coding",
+   "cwd": "${TOKOPT_DIR}",
+   "kind": "bash-pip",
+   "prompt": "Using the pip of the virtualenv in ./venv (venv/bin/pip), list every package installed in it with its version, and tell me which version of requests and of urllib3 is installed. Read-only: do not modify any file.",
+   "expect": "/requests\\W{0,12}2\\.\\d+/"
+  }
+ ]
+}

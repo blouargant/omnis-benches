@@ -55,10 +55,14 @@ def find_agent(cfg, name):
 def apply_patch(cfg, patch):
     """Return a NEW config with `patch` applied. Never mutates `cfg`.
 
-    patch = {"agent": n, "key": k, "value": v}          -> set
+    patch = {"key": k, "value": v}                      -> set a top-level key
+          | {"agent": n, "key": k, "value": v}          -> set
           | {"agent": n, "remove_from": k, "value": v}  -> drop from a list
     """
     out = copy.deepcopy(cfg)
+    if "agent" not in patch:  # top-level key of the section (e.g. token_optimization)
+        out[patch["key"]] = patch["value"]
+        return out
     a = find_agent(out, patch["agent"])
     if a is None:
         raise KeyError(f"agent {patch['agent']!r} not found in config")
@@ -70,9 +74,25 @@ def apply_patch(cfg, patch):
     return out
 
 
+def _expand(v):
+    """Expand ${VAR} in every string of a patch value (e.g. a filters dir built
+    by a setup script). Done at load time so apply() and verify() compare the
+    same, already-expanded value."""
+    if isinstance(v, str):
+        out = os.path.expandvars(v)
+        if "$" in out:
+            raise SystemExit(f"unresolved variable in variant value {v!r}")
+        return out
+    if isinstance(v, list):
+        return [_expand(x) for x in v]
+    if isinstance(v, dict):
+        return {k: _expand(x) for k, x in v.items()}
+    return v
+
+
 def load_variants(path):
     with open(path) as f:
-        return {v["id"]: v for v in json.load(f)["variants"]}
+        return {v["id"]: _expand(v) for v in json.load(f)["variants"]}
 
 
 class Switcher:
@@ -139,6 +159,10 @@ class Switcher:
             live = self._get(section)
             for p in variant.get("patches", []):
                 if p.get("section", "agent") != section:
+                    continue
+                if "agent" not in p:
+                    if live.get(p["key"]) != p["value"]:
+                        bad.append(f"{p['key']} is {live.get(p['key'])!r}, expected {p['value']!r}")
                     continue
                 a = find_agent(live, p["agent"]) or {}
                 if "remove_from" in p:
