@@ -207,6 +207,9 @@ def consume(resp, m, agents, t0, deadline):
             note_model(m, d)
         elif ev == "ask_user":
             m["ask_user"] += 1
+            # Keep what was asked: "status=ask_user" alone does not say which
+            # command needs allow-listing.
+            m["ask_detail"] = {k: d.get(k) for k in ("question", "prompt", "title", "tool", "args", "reason") if d.get(k)}
             # The bench can never answer a prompt, so streaming on only burns the
             # deadline and then reports `cancelled` — which reads like a model
             # failure instead of "a tool call asked for confirmation". Stop here
@@ -238,7 +241,12 @@ def _scan_subagent_result(m, d, agents):
 def prepare_cwd(task, override):
     if override:
         return override, None
-    cwd = task.get("cwd", "")
+    # ${VAR} expansion lets a tasks file point at fixtures built outside the
+    # repo (e.g. ${TOKOPT_DIR}/gofail from setup-tokopt.sh). An unset variable
+    # would leave a literal "${...}" path the server rejects, so fail loudly.
+    cwd = os.path.expandvars(task.get("cwd", ""))
+    if "$" in cwd:
+        raise SystemExit(f"task {task.get('id')!r}: unresolved variable in cwd {cwd!r}")
     if cwd == "sandbox":
         src = os.path.join(HERE, "sandbox")
         tmp = tempfile.mkdtemp(prefix="squadbench-")
