@@ -275,3 +275,77 @@ d'ailleurs `"max_tokens": 32768`. Ici il ne vaut ni la sortie (32768) ni l'entr�
 `max_input_tokens` est nul — cas qui ne se présente plus. Mais c'est une **mine dormante** :
 tout client qui lit `max_tokens` comme budget de sortie (la convention LiteLLM) demandera
 256000 et prendra un 400. À aligner sur **32768** au prochain passage.
+
+---
+
+## 10. Re-vérification 14:14 — retour volontaire sur `scaleway/`, le correctif tient
+
+Contrôle demandé après une nouvelle modification de la configuration du modèle.
+**Conclusion : le tool-calling fonctionne toujours (9 pass / 0 fail / 0 warn, exit 0),
+mais pas pour la raison décrite au §8.** Ce paragraphe supersède le §8.1, le §8.3
+(ligne « Propagation d'erreur ») et le §8.4.
+
+### 10.1 La route est repassée sur le patron `scaleway/` — volontairement
+
+| | §8 (11:27) | maintenant (14:14) |
+|---|---|---|
+| `litellm_params.model` | `openai/deepseek-v4-flash-0731` | **`scaleway/deepseek-v4-flash-0731`** |
+| `custom_llm_provider` | `openai` | **`None`** (déduit du préfixe → `scaleway`) |
+| `updated_at` | 2026-09-15T11:27 | **2026-09-15T14:14** |
+
+Deux preuves indépendantes que le provider **Scaleway** est bien celui emprunté à
+l'exécution — un `OpenAIException` serait remonté sur la route `openai/` :
+
+```
+kwarg inconnu   → 500 litellm.APIConnectionError: ScalewayException -
+                  AsyncCompletions.create() got an unexpected keyword argument 'bogus_param_xyz'
+temperature=999 → 500 litellm.APIConnectionError: ScalewayException - Error code: 400 -
+                  {'message': 'temperature must be in [0, 2] …'}
+```
+
+**Ce n'est pas le piège du §9 qui a joué** : le détour par `openai/` a été **annulé
+volontairement**, `scaleway/` est la configuration voulue. C'est donc bien cette
+configuration-là qui est validée ci-dessous. (Le piège du §9 — éditer la carte d'un
+modèle réécrit le déploiement et peut reverter `litellm_params.model` — reste vrai et
+mérite toujours un `model-probe --only tools` après chaque édition de carte.)
+
+### 10.2 Pourquoi ça marche quand même : c'est la cost-map qui a été réparée
+
+Sur le chemin provider Scaleway, `tools` ne survit que si
+`supports_function_calling(model, custom_llm_provider="scaleway")` renvoie `True`, ce qui
+exige la clé dans la carte **effective**. Or elle résout aujourd'hui et ne résolvait pas
+hier — alors que les drapeaux `supports_*` de la carte du modèle étaient **identiques les
+deux jours** (`supports_function_calling: true` figurait déjà hier, §3). La carte du
+modèle n'est donc **pas** le mécanisme.
+
+> **La carte de prix servie contient désormais `scaleway/deepseek-v4-flash-0731`** — soit
+> par le patch d'une entrée du §4, soit par un rafraîchissement depuis l'amont. Les 6
+> alias d'IDs courts y sont toujours, puisque les voisins passent encore.
+
+C'est donc le correctif **immédiat** du §4 qui est en place, pas le correctif
+**structurel**. Conséquence inchangée : le prochain modèle Scaleway ajouté naîtra cassé
+si la carte servie n'est pas mise à jour avec lui.
+
+### 10.3 Résultats mesurés
+
+| Contrôle | Résultat |
+|---|---|
+| `model-probe` complet, gateway | **9 pass / 0 fail / 0 warn / 8 info — exit 0** |
+| 4 checks critiques d'outils | tous **PASS** |
+| `tool_choice=required` | force bien un appel (c'était un `WARN` avant correctif) |
+| Appels d'outils parallèles | 2 en un tour ✅ |
+| Non-régression voisins | `Balanced`, `High`, `Simple`, `qwen3.6-35b-a3b`, `mistral-medium-3.5-128b` → **4 pass / 0 fail** chacun |
+| `/model/info` contexte | `max_input_tokens: 229376`, `max_output_tokens: 32768` → omnis préremplit la **bonne** valeur |
+
+### 10.4 Deux corrections à ce qui avait été écrit
+
+1. **Le masquage 400→500 n'a PAS disparu** (le §8.3 l'annonçait corrigé, à tort — il
+   l'était sur la route `openai/`, qui n'est plus en place) : `temperature: 999` donne un
+   `400 BadRequestError` propre en direct et un **500 `APIConnectionError`** via la
+   gateway.
+2. **Le 400 de dépassement de `max_tokens` a disparu, lui** : `max_tokens: 9999999`
+   renvoie maintenant **200** (contre un 400 hier et toujours un 400 en direct). LiteLLM
+   clampe ou ignore la valeur face au `max_output_tokens: 32768` désormais déclaré.
+   Effet de bord à connaître : **le truc du 400 non facturé pour découvrir le vrai
+   plafond de sortie ne fonctionne plus à travers la gateway** — passer par le rail
+   direct pour ça.

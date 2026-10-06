@@ -364,14 +364,29 @@ then scoring with the task's `verify.sh` on an ephemeral kind cluster.
   model suddenly "narrates instead of acting", run `model-probe` against the endpoint
   **and** the same model direct at its provider before blaming the squad or the model.
 - **That August fix FREEZES the cost map, so every Scaleway model added afterwards is
-  born with `tools` stripped.** FIXED for DeepSeek on 2026-09-15 by moving that one route
-  to the **`openai/` pattern** (`openai/deepseek-v4-flash-0731`, provider `openai`,
-  `api_base` unchanged): re-probed **9 pass / 0 fail / 0 warn**, all 4 critical tool
-  checks green, no regression on the `scaleway/` siblings, pricing intact (it lives in
-  `litellm_params`, not the cost map), and the upstream 400 now surfaces as a **400**
-  instead of a masked **500**. **This is the remedy to generalize** — the remaining 10
-  `scaleway/*` routes still hang off the frozen August snapshot and work only by its
-  aliases, so the next Scaleway model added on that pattern will be born broken again.
+  born with `tools` stripped.** FIXED for DeepSeek on 2026-09-15 — but **NOT by the
+  `openai/` route**, contrary to what this entry first claimed. Re-probed after the fix:
+  **9 pass / 0 fail / 0 warn**, all 4 critical tool checks green, `tool_choice=required`
+  and parallel tool calls working too, no regression on the siblings
+  (Balanced/High/Simple/qwen3.6/mistral-medium all 4 pass). **The route still resolves to
+  the Scaleway provider** — proven twice: an unknown kwarg AND an upstream 400 both come
+  back as `litellm.APIConnectionError: ScalewayException` (an `openai/` route would raise
+  `OpenAIException`), and `litellm_params.model` still reads
+  `scaleway/deepseek-v4-flash-0731`. The `openai/` detour measured at 11:27 was **rolled
+  back on purpose** (confirmed by the user) — this is NOT the model-card-edit trap below
+  firing; `scaleway/` is the intended configuration. **What this proves is that the COST MAP was fixed, not the
+  route**: on the Scaleway JSON-provider path `tools` survives only if
+  `supports_function_calling(model, custom_llm_provider="scaleway")` resolves True, which
+  requires the key in the *effective* cost map. It resolves now and did not yesterday,
+  while the card's `supports_*` flags were **identical on both days** — so the card is not
+  the mechanism, and the served map must now carry `scaleway/deepseek-v4-flash-0731`
+  (either the §4 one-entry hot patch or a refresh from upstream). The 6 short-id aliases
+  are still in it too, since the siblings still pass. **So the structural remedy was NOT
+  applied**: all 11 `scaleway/*` routes still hang off the
+  August snapshot, and the next Scaleway model will be born broken again unless its card
+  carries explicit capability metadata. Cheapest working policy — declare
+  `supports_function_calling` + `max_input_tokens`/`max_output_tokens` on every new model
+  card, then `model-probe --only tools` before wiring it into a squad.
   Original diagnosis, verified 2026-09-15 on `deepseek-v4-flash-scaleway`
   (deployed 2026-09-14): gateway **0/4** critical tool checks, Scaleway direct **7/7** —
   the model is fine, the gateway drops the param. The cause is *not* August's
@@ -442,9 +457,14 @@ then scoring with the task's `verify.sh` on an ephemeral kind cluster.
   a live mine for any client reading it as the output budget. Also note **editing a
   model's `model_info` rewrites the whole LiteLLM deployment**, so it can silently
   revert `litellm_params.model` — re-run `model-probe --only tools` after every edit to
-  a model's card (it did not revert this time: 4 pass / 0 fail). The 400-masked-as-500
-  noted earlier also disappeared with the `openai/` route: the upstream 400 now
-  surfaces as a **400** `BadRequestError`.
+  a model's card (it did not revert this time: 4 pass / 0 fail). **The 400-masked-as-500
+  is NOT fixed** — re-measured 2026-09-15 after the fix: `temperature: 999` returns a
+  clean `400 BadRequestError` on Scaleway direct but a **500**
+  `litellm.APIConnectionError: ScalewayException` through the gateway. Separately, an
+  over-cap `max_tokens` no longer errors at all (9999999 -> **200**), so LiteLLM now
+  clamps or drops it against the declared `max_output_tokens` — meaning **the
+  unbilled-400 trick for discovering a model's real output cap no longer works through
+  the gateway**. Use the direct rail for that.
 - **A model's `context_length` must leave room for the output reservation — the
   shipped `balanced` value does not.** omnis asks for `max_completion_tokens` on
   top of the prompt, and the provider validates the *sum* against its context
