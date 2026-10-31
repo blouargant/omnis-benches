@@ -204,3 +204,41 @@ python3 squad-bench/bench.py --server http://127.0.0.1:8190 --token bench \
 python3 squad-bench/judge_modelcost.py $W --out $W/scores.jsonl
 squad-bench/setup-modelcost.sh $W stop
 ```
+
+## 9. Addendum — A/B « bornes d'appels » (2026-10-31 soir)
+
+Branche omnis `perf/knowledge-call-volume` (00949dc) : budgets de pages dans les
+consignes de `web_agent` / `web_fetcher` / `research_critic`, déclenchement plus
+strict de la recherche approfondie, plafond `WebFetch` à 20 000 caractères, cache
+des pages et recherches par session. **W0** = omnis `develop`, **W1** = la branche,
+mêmes modèles que V0, 4 questions × 3 prévues. Données :
+`call-volume-ab-2026-10-31.jsonl`.
+
+Le budget d'équipe de la gateway (relevé à 300 \$) a été atteint vers 20 h 54 :
+KServe n'a pas tourné, deux runs NetBird de W1 sont des doublons du premier
+(0,1 min, même réponse) et sont écartés. **Qualité non notée** (les juges passent
+par la même gateway).
+
+| Coût moyen / run | W0 develop | W1 bornes |
+|---|---|---|
+| LMCache (3 vs 3) | 3,87 \$ | 3,58 \$ |
+| Arkane (3 vs 2) | 3,43 \$ | 5,33 \$ |
+| NetBird (3 vs 1) | 0,56 \$ | 0,15 \$ |
+
+| `web_agent` | W0 | W1 |
+|---|---|---|
+| pages lues par appel | 10–30 (moy. ≈ 22) | 16–30 (moy. ≈ 24) |
+| contexte moyen par appel au modèle | 26–74 k | 26–64 k |
+
+**Constat : les budgets écrits dans les consignes ne sont pas respectés.**
+`web_agent` lit toujours ≈ 20–30 pages par appel (consigne : 8 au plus),
+`web_fetcher` fait jusqu'à 230 recherches par run (consigne : 2 par question).
+Le plafond de 20 000 caractères réduit la taille d'une page, mais pas le nombre
+de pages. Seul NetBird bénéficie clairement du déclenchement plus strict
+(1 délégation, 0,15 \$), sur un seul run valide. Aucune économie mesurable sur les
+recherches approfondies, et la variance entre runs identiques (×1,8 sur LMCache
+W0) couvre les écarts.
+
+**Suite logique :** imposer la limite côté hôte — un plafond d'appels d'outils
+**par invocation** de sous-agent (le `max_tool_calls` existant est partagé entre
+toutes les instances parallèles d'un tour, donc inutilisable pour `web_agent` ×10).
