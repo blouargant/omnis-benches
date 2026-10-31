@@ -1,0 +1,13 @@
+{
+  "_comment": "Real Knowledge-squad questions taken from past sessions (2026-08..10), used to compare cost vs quality across gateway models. Quality is judged by judge_modelcost.py (blind LLM rubric), not by regex facts.",
+  "tasks": [
+    {"id": "mc-lmcache", "squad": "knowledge", "kind": "web",
+     "prompt": "Is it interesting to use LLM Cache with vLLM for a Quantized Qwen3.6 27B GPTQ Pro model that run on 2 GPUs (no nvlink) on the same host ?\nWhat are the pros and cons ? Is there are known bugs of using lmcache with Qwen3.6-27B model ?\nI need an exhaustive research to take an enlighten decision."},
+    {"id": "mc-netbird", "squad": "knowledge", "kind": "web",
+     "prompt": "how does https://docs.netbird.io/agent-network integrate with AI gateway LiteLLM, are groups created by netbird in LiteLLM how budgets ? are handled per teams ? are we limited to teams in the identity provider ?"},
+    {"id": "mc-arkane", "squad": "knowledge", "kind": "web",
+     "prompt": "Que peux-tu trouver sur arkanecloud.com ? est-ce un fournisseur solide ? est-ce qu'il y a des avis dessus ? Compare aussi les tarifs d'Arkane Cloud avec d'autres fournisseurs GPU français."},
+    {"id": "mc-kserve", "squad": "knowledge", "kind": "web",
+     "prompt": "How does kserve + vLLM works ?\nhow multiple GPUs are handled ? what kind of parallelism is used , tensor parallelism, data parallelism, pipeline parallelism ?\nAnd finally how vLLM options are handled ?"}
+  ]
+}
