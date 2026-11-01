@@ -46,6 +46,7 @@ OMNIS_SERVER_TOKEN), --deadline seconds per turn (default 420), --keep (don't de
 session), --cwd (override task cwd).
 """
 import argparse
+import uuid
 import copy
 import json
 import os
@@ -176,6 +177,7 @@ def fetch_count(m):
 
 
 ANSWER_ASKS = False
+NONCE = False
 ASK_REPLY = "No preference - use your own best judgment and continue without asking me again."
 
 
@@ -349,6 +351,12 @@ def run_task(base, token, task, agents, deadline, keep, cwd_override):
     m["answers"] = []
     done = True
     m["prompts"] = task_prompts(task)
+    if NONCE:
+        # The ChapsVision gateway caches responses: a repeat of an identical
+        # request comes back in seconds with the same answer, so every sample
+        # after the first measured nothing. A unique tag on the first prompt
+        # makes each run's requests distinct.
+        m["prompts"][0] += f"\n\n(bench run {uuid.uuid4().hex[:8]})"
     for prompt in m["prompts"]:
         mark = len(m["_answer_parts"])
         done = run_one_turn(base, token, sid, prompt, m, agents, deadline)
@@ -448,9 +456,12 @@ def main():
     ap.add_argument("--json", action="store_true", help="print JSON records only")
     ap.add_argument("--answer-asks", action="store_true",
                     help="answer AskUserQuestion prompts ('no preference') instead of aborting the run")
+    ap.add_argument("--nonce", action="store_true",
+                    help="append a unique run tag to the first prompt (defeats the gateway response cache across --repeat samples)")
     args = ap.parse_args()
-    global ANSWER_ASKS
+    global ANSWER_ASKS, NONCE
     ANSWER_ASKS = args.answer_asks
+    NONCE = args.nonce
 
     with open(args.tasks) as f:
         catalog = json.load(f)["tasks"]

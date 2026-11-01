@@ -59,7 +59,22 @@ for v in $(printf '%s\n' "${!V[@]}" | sort); do
   echo "{\"model_ref\":\"$leader\"}" > "$home/registry/agents/knowledge_leader/agent.json"
   echo "{\"model_ref\":\"$web\"}"    > "$home/registry/agents/web_agent/agent.json"
   echo "{\"model_ref\":\"$critic\"}" > "$home/registry/agents/research_critic/agent.json"
-  echo '{"serper_key":"SERPER_KEY"}' > "$home/agents.json"
+  # Cheap probe squads (`cv-agent`, `cv-fetch`): a Balanced leader that hands the question
+  # verbatim to web_agent or web_fetcher (one squad each, and one tool call
+  # allowed: an unconstrained relay re-delegated 5 times), so a sub-agent's call volume
+  # (per-call cap, web cache) costs cents to measure instead of dollars.
+  mkdir -p "$home/registry/agents/probe_leader"
+  cat > "$home/registry/agents/probe_leader/agent.json" <<'J'
+{"name":"probe_leader","description":"Bench-only relay leader.","leader":true,"model_ref":"balanced","tools":[],"max_tool_calls":1}
+J
+  cat > "$home/registry/agents/probe_leader/instruction.md" <<'J'
+You are a relay used by a benchmark. The user message starts with the name of
+the agent to use (`web_agent:` or `web_fetcher:`). Call that agent exactly once,
+passing the rest of the message unchanged as its request. Then reply with its
+answer unchanged. Never call it a second time, never answer yourself, never ask
+the user anything.
+J
+  echo '{"serper_key":"SERPER_KEY","agents":["probe_leader"],"squads":[{"name":"cv-agent","description":"bench probe","leader":"probe_leader","members":["web_agent"]},{"name":"cv-fetch","description":"bench probe","leader":"probe_leader","members":["web_fetcher"]}]}' > "$home/agents.json"
   # Nobody can click a permission card in a bench: allow everything (the Bash
   # safety floor still applies). Same as k8s-ai-bench/bench-permissions.json.
   echo '{"permissions":{"defaultMode":"bypassPermissions","allow":[],"ask":[],"deny":[]}}' > "$home/permissions.json"

@@ -1,0 +1,13 @@
+{
+  "_comment": "Cheap call-volume probes (a few cents each): a Balanced relay leader (squads `cv-agent` / `cv-fetch`, see setup-modelcost.sh) hands each question to one research sub-agent, so web_agent / web_fetcher behaviour can be iterated on without paying the Knowledge leader and critic. Validate a candidate here, then on tasks-modelcost.json.",
+  "tasks": [
+    {"id": "cv-agent-lookup", "squad": "cv-agent", "kind": "web",
+     "prompt": "web_agent: What is the default value of vLLM's --gpu-memory-utilization option and what exactly does it control? Cite the official documentation."},
+    {"id": "cv-agent-compare", "squad": "cv-agent", "kind": "web",
+     "prompt": "web_agent: Compare LMCache and vLLM's built-in prefix caching: what does each one cache, where is the cache stored, and when is LMCache worth adding? Cite sources."},
+    {"id": "cv-fetch-check", "squad": "cv-fetch", "kind": "web",
+     "prompt": "web_fetcher: Claim: \"vLLM's --gpu-memory-utilization defaults to 0.9.\" Source: https://docs.vllm.ai/en/latest/configuration/engine_args.html . Return the passage that supports or contradicts the claim."},
+    {"id": "cv-fetch-open", "squad": "cv-fetch", "kind": "web",
+     "prompt": "web_fetcher: Claim: \"LMCache can offload the KV cache to local disk as well as CPU memory.\" No source given: find the official documentation and return the passage that supports or contradicts the claim."}
+  ]
+}
