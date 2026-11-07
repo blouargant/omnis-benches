@@ -91,3 +91,27 @@ In A the auditor ran on 21 of 31 tasks and roughly tripled their cost
 **B qualifies → adopt.** (The two-pass audit was added when the gatekeeper suite
 was at 77 %; with today's k8s-audit skill and models the second pass adds nothing
 here.)
+
+## Adoption (omnis 68a52ef)
+
+- **Knowledge → arm C.** `knowledge_leader` holds `serper`/`ddg`/`web`; the squad
+  is `doc_agent`, `summariser`, `image_generator`. Its instruction was rewritten
+  (research rules from `web_agent`, the adversarial review done in writing by the
+  leader), and `deep-research` reads as "searches or sub-agent tasks".
+  Live check of the rewritten instruction on NetBird and KServe: $0.165 and
+  $0.244 (arm C: $0.160 and $0.229), the leader searched itself (3–4
+  `WebSearch`, 8 `WebFetch` each). It found a regression of the prompt pass
+  (49ef553): an English answer opened with "Compris :" because the contract's
+  acknowledgement examples no longer included "Understood" — fixed with a test.
+- **Kubernetes → arm B.** `k8s_auditor` leaves the squad; `k8s_leader` and the
+  `k8s-audit` skill describe a one-pass audit with the leader checking flags that
+  carry no quoted field.
+- **Coding → unchanged** (undecided, see above).
+
+`web_agent`, `research_critic`, `web_fetcher` and `k8s_auditor` stay defined and
+enabled (`web_agent` still serves the Skill Editor squad).
+
+## Spend
+
+spent+planned 17.48 $ / cap 58.00 $
+(ledger: `squad-shape-ledger.jsonl`; judges' cost estimated at 1 $.)
