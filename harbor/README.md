@@ -12,6 +12,10 @@ Two variants make the A/B that matters:
 |---|---|---|
 | `full` | the shipped **Coding** squad: leader `coder` + `code_scout`, `code_docs`, `reviewer`, `refactorer`, `agentmd_reviewer`; coder tools `fs, softskills, planning, worktree, bg, lsp, tests, astgrep` | ~16.0k |
 | `full-noreview` | `full` **minus the `reviewer`** (dropped from the squad, its paragraph cut from the coder instruction); everything else identical, so `full` vs `full-noreview` isolates what the reviewer buys | ~15.5k |
+| `lean` | **`coder` alone** (leaderless squad), tools `fs` + `tests` only, instruction stripped of the team / LSP / ast-grep sections | ~4.7k |
+
+(For reference the leaderboard leaders carry ~2–3k: Pi has 4 tools,
+mini-swe-agent a bash tool.)
 
 **Production tiering and squad shapes** (outside the leaderboard rules):
 `TIERED=1` keeps the shipped `models.json` tiers (leader on `premium`,
@@ -20,10 +24,6 @@ at its own model; `-m` is then only a label. `SHAPE=<arm>` applies a
 `squad-bench/shapes.json` arm (e.g. `coding-C` = without `reviewer` and
 `code_scout`) as an overlay copied into the omnis user layer before the run.
 Example: `TIERED=1 SHAPE=coding-B ./run.sh tb full smoke`.
-| `lean` | **`coder` alone** (leaderless squad), tools `fs` + `tests` only, instruction stripped of the team / LSP / ast-grep sections | ~4.7k |
-
-(For reference the leaderboard leaders carry ~2–3k: Pi has 4 tools,
-mini-swe-agent a bash tool.)
 
 ## How it maps onto the leaderboard's method
 
