@@ -111,7 +111,28 @@ here.)
 `web_agent`, `research_critic`, `web_fetcher` and `k8s_auditor` stay defined and
 enabled (`web_agent` still serves the Skill Editor squad).
 
+## Final review and re-check (omnis fbf7139)
+
+A fresh review found no critical issue and two important ones, both fixed:
+
+- **The leader had no host-side cap on its own fetching** (web_agent had
+  `max_tool_calls_per_call: 20`). `knowledge_leader` now has `max_tool_calls: 80`
+  (2x the largest measured turn) and a written page budget (8 standard, 25 deep);
+  `TestShippedWebToolHoldersAreCapped` requires a cap on every web-tool holder.
+- **The shipped instruction had not been measured on the deep questions.** The
+  final config was re-run on LMCache, Arkane and KServe and judged beside A and C:
+
+| | Cost (3 questions) | Judges (mean) | capped ≤ 5 |
+|---|---|---|---|
+| A shipped squad | $4.97 | 7.33 | 0 |
+| C (measured arm) | $1.61 | 7.08 | 0 |
+| final config | $1.95 (−61 % vs A) | 6.83 | 0 |
+
+  Within the adoption rule (−0.5 vs A, no capped answer). The English question
+  now opens with "Understood", the French one with "Compris". LMCache used 20
+  fetches (budget 25), KServe 6.
+
 ## Spend
 
-spent+planned 17.48 $ / cap 58.00 $
+spent+planned 20.43 $ / cap 58.00 $
 (ledger: `squad-shape-ledger.jsonl`; judges' cost estimated at 1 $.)
