@@ -38,7 +38,11 @@ import io
 import json
 import shutil
 import tarfile
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "squad-bench"))
+import shape_overlay  # noqa: E402
 
 VARIANTS = ("full", "lean", "full-noreview")
 
@@ -113,6 +117,21 @@ def bench_models(model: str, *, context_length: int, max_output_tokens: int,
     }
 
 
+def tiered_models(shipped: dict) -> dict:
+    """The shipped catalogue, unchanged tiers and prices (production tiering),
+    with every provider reading the gateway from the env and no override."""
+    m = json.loads(json.dumps(shipped))
+    for prov in (m.get("providers") or {}).values():
+        prov["base_url"], prov["api_key"] = "OPENAI_BASE_URL", "OPENAI_API_KEY"
+    m["override_model_enabled"], m["override_model_ref"], m["embed_model_ref"] = False, "", ""
+    return m
+
+
+def overlay_seed_cmd(sysconf: str, home: str) -> str:
+    """Shell that copies a squad-shape overlay into the omnis user layer."""
+    return f"if [ -d {sysconf}/overlay ]; then cp -r {sysconf}/overlay/. {home}/; fi"
+
+
 def patch_agents(agents: dict, variant: str) -> dict:
     a = json.loads(json.dumps(agents))
     a["agents"] = [n for n in a["agents"] if n not in ("curator", "reflector")]
@@ -144,7 +163,9 @@ def strip_reviewer(instruction: str) -> str:
     return "".join(lines[:start] + lines[end:])
 
 
-def build(src_tar: Path, out: Path, variant: str, models: dict) -> Path:
+def build(src_tar: Path, out: Path, variant: str, models: dict | None, shape: str = "") -> Path:
+    """models None = production tiering (tiered_models of the shipped catalogue).
+    shape = a squad-bench/shapes.json arm, written to <out>/overlay/."""
     if variant not in VARIANTS:
         raise ValueError(f"variant must be one of {VARIANTS}")
     if out.exists():
@@ -169,6 +190,8 @@ def build(src_tar: Path, out: Path, variant: str, models: dict) -> Path:
                 dest.chmod(m.mode & 0o755 | 0o644)
 
     (out / "hooks.json").unlink(missing_ok=True)
+    if models is None:
+        models = tiered_models(_load(out / "models.json"))
     _dump(out / "models.json", models)
     _dump(out / "permissions.json", {"permissions": {
         "defaultMode": "bypassPermissions", "deny": [], "ask": [], "allow": []}})
@@ -186,6 +209,8 @@ def build(src_tar: Path, out: Path, variant: str, models: dict) -> Path:
     if variant == "full-noreview":
         instr = out / "registry" / "agents" / "coder" / "instruction.md"
         instr.write_text(strip_reviewer(instr.read_text()))
+    if shape:
+        shape_overlay.build_overlay(out, shape_overlay.load_arm(shape), out / "overlay")
     (out / "BENCH_VARIANT").write_text(variant + "\n")
     return out
 

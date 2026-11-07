@@ -8,7 +8,9 @@
 #         full | a comma list of task names.
 # Knobs (env): MODEL (default openai/deepseek-v4.1-flash-scaleway),
 #   IN_PRICE / OUT_PRICE / CACHE_PRICE ($/M), CONTEXT_LENGTH, ATTEMPTS (k, default 1),
-#   CONCURRENCY (default 2), OMNIS_REPO / OMNIS_REF (omnis build), JOBS_DIR, JOB_NAME.
+#   CONCURRENCY (default 2), OMNIS_REPO / OMNIS_REF (omnis build), JOBS_DIR, JOB_NAME,
+#   TIERED=1 (shipped model tiers, priced per agent; -m is then only the label),
+#   SHAPE=<squad-bench/shapes.json arm> (squad-shape overlay in the user layer).
 # Credentials: OPENAI_BASE_URL / OPENAI_API_KEY from the repo-root .env (single
 # mechanism, see ../CLAUDE.md).
 set -euo pipefail
@@ -45,13 +47,14 @@ if [[ "$BENCH" == deepswe ]]; then
   "$HERE/prebuild-sidecar.sh"   # the allowlist sidecar; no-op when buildx exists
 fi
 
-JOB_NAME="${JOB_NAME:-$BENCH-$VARIANT-$SUBSET-$(date +%Y%m%d-%H%M%S)}"
+JOB_NAME="${JOB_NAME:-$BENCH-$VARIANT${SHAPE:+-$SHAPE}${TIERED:+-tiered}-$SUBSET-$(date +%Y%m%d-%H%M%S)}"
 export PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}" OMNIS_HARBOR_CACHE="$CACHE"
 set -x
 harbor run -p "$TASKS_DIR" "${INCLUDE[@]}" \
   -a omnis_harbor.agent:OmnisAgent \
   --ak "variant=$VARIANT" --ak "in_price=$IN_PRICE" --ak "out_price=$OUT_PRICE" \
   --ak "cache_price=$CACHE_PRICE" --ak "context_length=$CONTEXT_LENGTH" \
+  ${TIERED:+--ak "tiered=true"} ${SHAPE:+--ak "shape=$SHAPE"} \
   ${OMNIS_REF:+--ak "omnis_ref=$OMNIS_REF"} ${OMNIS_REPO:+--ak "omnis_repo=$OMNIS_REPO"} \
   -m "$MODEL" -k "$ATTEMPTS" -n "$CONCURRENCY" "${NET[@]}" \
   -o "$JOBS_DIR" --job-name "$JOB_NAME" -y "$@"

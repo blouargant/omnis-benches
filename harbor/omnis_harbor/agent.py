@@ -62,6 +62,8 @@ class OmnisOptions(InstalledAgentOptions):
     cache_price: float | None = Field(default=None, description="$ per M cached input tokens (default: input price).")
     context_length: int = Field(default=200000)
     max_output_tokens: int = Field(default=32000)
+    tiered: bool = Field(default=False, description="Keep the shipped model tiers (production) instead of one model for every agent; cost priced per agent.")
+    shape: str = Field(default="", description="squad-bench/shapes.json arm applied as a user-layer overlay (empty = shipped shape).")
 
 
 def _run(cmd: list[str], **kw) -> str:
@@ -75,16 +77,16 @@ def prepare(opts: OmnisOptions, model: str) -> tuple[Path, Path, str]:
                "OMNIS_HARBOR_CACHE": str(CACHE)}
         build_dir = Path(_run([str(ROOT / "build-omnis.sh")], env=env).strip().splitlines()[-1])
         version = (build_dir / "VERSION").read_text().strip()
-        models = make_sysconf.bench_models(model, context_length=opts.context_length,
-                                           max_output_tokens=opts.max_output_tokens,
-                                           in_price=opts.in_price, out_price=opts.out_price,
-                                           cache_price=opts.cache_price)
-        key = hashlib.sha256(json.dumps([version, opts.variant, models],
+        models = None if opts.tiered else make_sysconf.bench_models(
+            model, context_length=opts.context_length, max_output_tokens=opts.max_output_tokens,
+            in_price=opts.in_price, out_price=opts.out_price, cache_price=opts.cache_price)
+        key = hashlib.sha256(json.dumps([version, opts.variant, models, opts.tiered, opts.shape],
                                         sort_keys=True).encode()
-                             + (ROOT / "make_sysconf.py").read_bytes()).hexdigest()[:12]
-        sysconf = CACHE / f"sysconf-{opts.variant}-{key}"
+                             + (ROOT / "make_sysconf.py").read_bytes()
+                             + (ROOT.parent / "squad-bench" / "shapes.json").read_bytes()).hexdigest()[:12]
+        sysconf = CACHE / f"sysconf-{opts.variant}{'-' + opts.shape if opts.shape else ''}-{key}"
         if not (sysconf / "BENCH_VARIANT").exists():
-            make_sysconf.build(build_dir / "src.tar", sysconf, opts.variant, models)
+            make_sysconf.build(build_dir / "src.tar", sysconf, opts.variant, models, shape=opts.shape)
         return build_dir / "omnis", sysconf, version
 
 
@@ -116,6 +118,7 @@ class OmnisAgent(BaseInstalledAgent):
     async def install(self, environment: BaseEnvironment) -> None:
         binary, sysconf, version = prepare(self.options, self._model_id)
         self._omnis_version = version
+        self._sysconf = sysconf
         await self.exec_as_root(environment, command=f"mkdir -p {REMOTE}")
         await environment.upload_file(binary, f"{REMOTE}/omnis")
         await environment.upload_dir(sysconf, f"{REMOTE}/sysconf")
@@ -170,6 +173,7 @@ class OmnisAgent(BaseInstalledAgent):
             environment,
             command=(
                 "mkdir -p /logs/agent/omnis-home; "
+                + make_sysconf.overlay_seed_cmd(f"{REMOTE}/sysconf", "/logs/agent/omnis-home") + "; "
                 f"{REMOTE}/omnis -d < {REMOTE}/instruction.md "
                 "> /logs/agent/omnis.txt 2> /logs/agent/omnis.stderr; "
                 "rc=$?; echo \"omnis exit $rc\" >> /logs/agent/omnis.stderr; exit $rc"
@@ -182,7 +186,11 @@ class OmnisAgent(BaseInstalledAgent):
         u = usage.parse_dir(self.logs_dir / "omnis-home")
         t = u["total"]
         o = self.options
-        usd = usage.cost(t, o.in_price, o.out_price, o.cache_price)
+        if o.tiered:
+            prices = usage.agent_prices(self._sysconf)
+            usd = usage.cost_by_agent(u["agents"], prices, prices.get("coder", (o.in_price, o.out_price, o.cache_price)))
+        else:
+            usd = usage.cost(t, o.in_price, o.out_price, o.cache_price)
         context.n_input_tokens = t["prompt"]
         context.n_cache_tokens = t["cached"]
         context.n_output_tokens = t["output"]
@@ -191,7 +199,7 @@ class OmnisAgent(BaseInstalledAgent):
             n_input_tokens=t["prompt"], n_cache_tokens=t["cached"],
             n_output_tokens=t["output"], cost_usd=usd)}
         context.metadata = {
-            "harness": "omnis", "variant": o.variant,
+            "harness": "omnis", "variant": o.variant, "tiered": o.tiered, "shape": o.shape,
             "omnis_version": getattr(self, "_omnis_version", None),
             "model_calls": t["calls"], "tool_calls": u["tool_calls"],
             "agents": u["agents"],

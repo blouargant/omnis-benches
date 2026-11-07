@@ -74,6 +74,43 @@ def cost(t: dict, in_price: float, out_price: float, cache_price: float | None) 
     return ((t["prompt"] - cached) * in_price + cached * cp + t["output"] * out_price) / 1e6
 
 
+def agent_prices(sysconf: Path) -> dict:
+    """agent -> (in, out, cache) $/M from a sysconf's models.json and agent
+    model_refs. An agent without model_ref inherits its squad leader's model;
+    an enabled single-model override prices every agent at that model."""
+    sysconf = Path(sysconf)
+    cat = json.loads((sysconf / "models.json").read_text())
+    models = cat.get("models") or {}
+
+    def tup(ref):
+        m = models.get(ref) or {}
+        return (float(m.get("input_token_price_per_million") or 0),
+                float(m.get("output_token_price_per_million") or 0),
+                m.get("cached_input_token_price_per_million"))
+
+    refs = {}
+    for f in (sysconf / "registry" / "agents").glob("*/agent.json"):
+        a = json.loads(f.read_text())
+        refs[a.get("name") or f.parent.name] = a.get("model_ref") or ""
+    leader_of = {}
+    for sq in (json.loads((sysconf / "agents.json").read_text()).get("squads") or []):
+        for m in sq.get("members") or []:
+            leader_of.setdefault(m, sq.get("leader") or "")
+    out = {}
+    for name, ref in refs.items():
+        if cat.get("override_model_enabled") and cat.get("override_model_ref"):
+            ref = cat["override_model_ref"]
+        elif not ref:
+            ref = refs.get(leader_of.get(name, ""), "")
+        out[name] = tup(ref)
+    return out
+
+
+def cost_by_agent(agents: dict, prices: dict, default: tuple) -> float:
+    """Sum of each agent's tally at its own model's price (default for unknown)."""
+    return sum(cost(t, *prices.get(a, default)) for a, t in agents.items())
+
+
 def parse_dir(home: Path) -> dict:
     logs = sorted((home / "logs").glob("agent_events_*.log")) if home.exists() else []
     lines: list[str] = []
