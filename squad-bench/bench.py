@@ -46,6 +46,7 @@ OMNIS_SERVER_TOKEN), --deadline seconds per turn (default 420), --keep (don't de
 session), --cwd (override task cwd).
 """
 import argparse
+import uuid
 import copy
 import json
 import os
@@ -175,6 +176,11 @@ def fetch_count(m):
     return n
 
 
+ANSWER_ASKS = False
+NONCE = False
+ASK_REPLY = "No preference - use your own best judgment and continue without asking me again."
+
+
 def consume(resp, m, agents, t0, deadline):
     """Fold an SSE stream into m. Return True once a `done` frame is seen."""
     for seq, ev, d in iter_sse(resp):
@@ -206,10 +212,37 @@ def consume(resp, m, agents, t0, deadline):
         elif ev == "turn_usage":
             note_model(m, d)
         elif ev == "ask_user":
+            # omnis forwards every session's questions into each live turn
+            # stream; with several sessions on one server, answering another
+            # session's question 404s for all but the first client and used to
+            # abandon this task. Only our own session's questions count.
+            qsid = d.get("session_id")
+            if qsid and m.get("_sid") and qsid != m["_sid"]:
+                continue
             m["ask_user"] += 1
             # Keep what was asked: "status=ask_user" alone does not say which
             # command needs allow-listing.
             m["ask_detail"] = {k: d.get(k) for k in ("question", "prompt", "title", "tool", "args", "reason") if d.get(k)}
+            if m.get("_answer_asks") and d.get("question_id"):
+                # --answer-asks: play a hands-off user instead of aborting.
+                # A subtle (optional, closing) question is skipped; any other
+                # question gets "no preference, decide yourself".
+                m.setdefault("asks_answered", []).append((d.get("prompt") or "")[:200])
+                if d.get("subtle"):
+                    body = {"cancelled": True}
+                elif d.get("choices") and not d.get("allow_text"):
+                    body = {"selected": [d.get("default") or d["choices"][0]]}
+                else:
+                    body = {"text": ASK_REPLY}
+                try:
+                    api("POST", m["_base"], f"/api/sessions/{m['_sid']}/ask-user/{d['question_id']}", m["_token"], body)
+                    continue
+                except urllib.error.HTTPError as e:
+                    if e.code == 404:  # already answered or cancelled: keep streaming
+                        continue
+                    m["ask_detail"]["answer_error"] = str(e)
+                except Exception as e:  # fall back to aborting, as without the flag
+                    m["ask_detail"]["answer_error"] = str(e)
             # The bench can never answer a prompt, so streaming on only burns the
             # deadline and then reports `cancelled` — which reads like a model
             # failure instead of "a tool call asked for confirmation". Stop here
@@ -312,10 +345,18 @@ def run_task(base, token, task, agents, deadline, keep, cwd_override):
     m["squad"] = task["squad"]
     m["cwd"] = cwd
     m["session_id"] = sid
+    m["_base"], m["_sid"], m["_token"] = base, sid, token
+    m["_answer_asks"] = ANSWER_ASKS
     t0 = time.time()
     m["answers"] = []
     done = True
     m["prompts"] = task_prompts(task)
+    if NONCE:
+        # The ChapsVision gateway caches responses: a repeat of an identical
+        # request comes back in seconds with the same answer, so every sample
+        # after the first measured nothing. A unique tag on the first prompt
+        # makes each run's requests distinct.
+        m["prompts"][0] += f"\n\n(bench run {uuid.uuid4().hex[:8]})"
     for prompt in m["prompts"]:
         mark = len(m["_answer_parts"])
         done = run_one_turn(base, token, sid, prompt, m, agents, deadline)
@@ -347,7 +388,7 @@ def run_task(base, token, task, agents, deadline, keep, cwd_override):
     m["fetches"] = fetch_count(m)
     m["facts_per_fetch"] = (round(len(m["facts"]["found"]) / m["fetches"], 3)
                             if m["fetches"] else None)
-    for k in ("_answer_parts", "_seq", "_urls"):
+    for k in ("_answer_parts", "_seq", "_urls", "_base", "_sid", "_token", "_answer_asks"):
         m.pop(k, None)
     if not keep and sid:
         try:
@@ -413,7 +454,14 @@ def main():
     ap.add_argument("--keep", action="store_true", help="don't delete the bench session")
     ap.add_argument("--out", help="append one JSON record per run to this file")
     ap.add_argument("--json", action="store_true", help="print JSON records only")
+    ap.add_argument("--answer-asks", action="store_true",
+                    help="answer AskUserQuestion prompts ('no preference') instead of aborting the run")
+    ap.add_argument("--nonce", action="store_true",
+                    help="append a unique run tag to the first prompt (defeats the gateway response cache across --repeat samples)")
     args = ap.parse_args()
+    global ANSWER_ASKS, NONCE
+    ANSWER_ASKS = args.answer_asks
+    NONCE = args.nonce
 
     with open(args.tasks) as f:
         catalog = json.load(f)["tasks"]

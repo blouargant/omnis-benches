@@ -40,6 +40,7 @@ Keep the "Gotchas" section current — it encodes hard-won facts.
 | `squad-bench/campaign.py` | **Interleaved multi-variant campaigns** over `bench.py` + `variants.py`: alternates config variants in time against the same task suite with a V0 drift witness, flags search-backend degradation post-hoc, and reports medians with their observed spread. | `campaign.py` |
 | `model-probe/` | **Endpoint capability** probe: verifies a live OpenAI-compatible endpoint+model supports the features omnis uses (streamed chat, tool calling streaming+non-streaming, parameterless tools over streaming, tool-result round-trip, caching/usage/model-info). Exit≠0 iff a critical check fails. Has its own **`model-probe/CLAUDE.md`**. | `probe.py` |
 | `k8s-ai-bench/` | Adapter for the gke-labs **k8s-ai-bench** suite (Pass@k on real k8s tasks against ephemeral clusters), so omnis is scored comparably to other agents. | `omnis-agent` |
+| `harbor/` | **Harbor** adapter: omnis as a coding *harness* on Terminal-Bench 2.1 + DeepSWE v1.1, Harness Leaderboard method (pinned task commits + subsets, one model for every agent, k attempts). Variants `full` (shipped Coding squad) / `lean` (`coder` alone, `fs`+`tests`). | `run.sh` |
 
 `model-probe` tests a *raw endpoint*; `squad-bench` tests *squad behaviour* once
 that endpoint is wired into omnis. Sister tools.
@@ -166,6 +167,23 @@ tools — keep them in sync if you change the protocol handling.
     a fake `bench.run_task` — **never a live server**, so these tests are
     safe to run alongside a real campaign against the running instance.
 - Unit tests: `python3 -m unittest discover -s squad-bench` (stdlib only).
+
+## harbor (Harness Leaderboard adapter)
+
+- `harbor/run.sh <tb|deepswe> <full|lean> [smoke|pilot|full|t1,t2] [harbor args]`;
+  `ATTEMPTS=3` for a leaderboard-style campaign. Full guide + limits in
+  `harbor/README.md`. **The one exception to stdlib-only**: `omnis_harbor/agent.py`
+  imports Harbor (it is a Harbor plugin, loaded by `harbor run` in Harbor's own
+  uv-tool env); everything else (`make_sysconf.py`, `usage.py`, `summarize.py`,
+  tests) is stdlib.
+- omnis is built from a pinned git ref with `git archive` (the omnis checkout is
+  never modified) and configured ONLY through `OMNIS_SYSTEM_CONFIG_DIR` (never
+  `OMNIS_CONFIG_PATH`). Tokens/cost come from omnis's own `-d` event log.
+- Host prerequisites learned the hard way: Harbor's docker env needs the
+  **docker compose v2 plugin**; DeepSWE's offline agent phase needs Harbor's
+  egress sidecar, built with **buildx** — absent here, so `prebuild-sidecar.sh`
+  builds it with the legacy builder under Harbor's exact tag.
+- Unit tests: `python3 -m unittest discover -s harbor`.
 
 ## model-probe
 
@@ -404,6 +422,59 @@ then scoring with the task's `verify.sh` on an ephemeral kind cluster.
   all: the `openai/` route pattern hard-codes the tool params and never consults it.
   Full diagnosis, the one-entry hot patch, and the post-fix verification (§8) in
   `reports/gateway-deepseek-tool-calling-2026-09-15.md`.
+- **A model can RECEIVE `tools`, answer correctly, and still have the tool call
+  destroyed by the transport — the token count is what gives it away.** Third
+  gateway tool-calling incident, third distinct cause (2026-10-06,
+  `Devstral-Small` -> `hosted_vllm/mistralai/Devstral-Small`): unlike the
+  2026-08/09 cost-map cases, `tools` **is** forwarded here — non-streaming
+  returns a clean `finish_reason=tool_calls`. Only `stream=true` +
+  `tool_choice=auto` is broken, and it fails **silently**: zero `delta.tool_calls`,
+  `finish_reason=stop`. The decisive measurement is
+  **`completion_tokens` identical (12) on both paths** — the model produced the
+  same output and streaming simply never delivered it; when the model emits a
+  prose preamble first, the prose arrives and only the tool call vanishes, which
+  reads exactly like "the model narrates instead of acting" and sends you chasing
+  the prompt or the squad. `tool_choice=required` and a named `tool_choice` DO
+  stream valid calls (guided decoding, a different server path) but are **not a
+  workaround** — `required` forces a call when none fits (measured: "Just say
+  hello" -> `get_weather({"city":"London"})`), and an agent must stay free to
+  answer in prose. Scope is one deployment, not the gateway: the two sibling
+  `hosted_vllm` models on the SAME host (`ChapsVision`,
+  `Qwen3.6-27B-ChapsVision` -> `Qwen/Qwen3.6-27B`) stream tool calls fine, which
+  also rules out the frozen cost map (all three carry
+  `supports_function_calling: null`). Inferred cause (the upstream is 401 from
+  outside, so unverifiable here): the vLLM `--tool-call-parser` for this
+  deployment has a working non-streaming branch and a dead streaming one —
+  corroborated by `finish_reason` staying `stop` even in `required` mode, where
+  the Qwen witnesses correctly say `tool_calls`. **Lesson: never qualify a model
+  on the non-streaming path alone** — it reads PASS here. `model-probe --only
+  tools` catches it (its `Tool calling (streaming)` check was born from the
+  GLM-5.2 regression); report + minimal repro in
+  `reports/gateway-devstral-small-tool-calling-2026-10-06.md` (+ `-probe.py`).
+  That card is also metadata-empty (`mode: null`, every `supports_*` null, both
+  token costs **0.0** -> the model bills as FREE in any bench, and
+  `max_output_tokens == max_input_tokens == 128000` is the output-reservation
+  trap). **Two further facts from the follow-up (report §9), both useful beyond
+  this model.** (1) **This deployment validates `tool_call_id`: its last 9
+  characters must be alphanumeric.** A replayed history with a fabricated id gets
+  a 400 `Tool call id was call_1 but must be a-z, A-Z, 0-9, with a length of 9` —
+  that is `mistral_common`'s validator, which incidentally **proves the server
+  runs `--tokenizer-mode mistral`** (the recommended config for Devstral, so the
+  deployment is not obviously misconfigured). Measured: `gt9fPERuj` (server-
+  generated) OK, `ABC123xyz` OK, `call_abcdefghijklmnop` OK (only the last 9
+  count), `call_1` 400, and **`chatcmpl-tool-9f3a2b1c` 400** — which is the
+  default id shape vLLM and several OpenAI-compatible stacks emit. omnis reuses
+  the model's own id so the normal loop passes, but **any harness that fabricates
+  or rewrites tool-call ids** (history compaction, replay) will 400 here. (2) On
+  the "is it a vLLM version problem" question: no launch flag change would fix
+  streaming without breaking what works (parser active and correct — non-streaming
+  extracts, no raw `[TOOL_CALLS]` leak; SSE emission fine — `required` streams even
+  parallel calls), so the defect is code behaviour, not config. The tell pointing
+  at an older vLLM is on the path that WORKS: `required` streams tool calls yet
+  still reports `finish_reason: stop`, while the Qwen witness on the same host
+  correctly says `tool_calls`. Decide it with two reads before bumping — the vLLM
+  version of BOTH deployments and the launch flags — then re-run `model-probe
+  --only tools`, which re-judges it binarily in 30s.
 - **DeepSeek's prompt cache is best-effort BY DESIGN — ~60% on a hammered prefix, but
   only 3.7% on real omnis load, and that gap is structural, not a bug.** Scaleway
   documents it: caching uses "heuristics that optimize both throughput and availability",
