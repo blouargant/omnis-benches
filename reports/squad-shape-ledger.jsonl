@@ -1,1 +1,12 @@
 {"step": "task1-premium-probe", "usd": 0.054}
+{"step": "coding-A-1", "usd": 0.2917}
+{"step": "knowledge-A", "usd": 5.425}
+{"step": "coding-A-2", "usd": 0.3044}
+{"step": "coding-B-1", "usd": 0.3248}
+{"step": "coding-B-2", "usd": 0.3307}
+{"step": "coding-C-1", "usd": 0.4407}
+{"step": "coding-C-2", "usd": 0.2467}
+{"step": "knowledge-B", "usd": 3.310}
+{"step": "knowledge-C", "usd": 1.765}
+{"step": "knowledge-judges (estimate: 8 calls, ~12k tokens in each)", "usd": 1.0}
+{"step": "k8s-A", "usd": 2.593}
