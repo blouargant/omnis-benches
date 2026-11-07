@@ -73,3 +73,21 @@ worse and much cheaper", not "better".
 Why the gatherer doctrine did not hold here: the leader on Sonnet 5.5 reads its
 cache at $0.21/M, so holding fetched pages costs little, and alone it dosed the
 research (one pass) where the squad fanned out 20 `web_agent` calls on LMCache.
+
+## Kubernetes — k8s-ai-bench gatekeeper suite (31 tasks), production tiers
+
+`OMNIS_SERVER_BIN` + `OMNIS_SYSTEM_CONFIG_DIR` from the same omnis build, arm B
+with `OMNIS_BENCH_OVERLAY` (batches of 8, early-stop checked after each).
+
+| Arm | Pass@1 | Cost |
+|---|---|---|
+| A shipped (two-pass audit: k8s_investigator then k8s_auditor) | 26/31 | $2.59 |
+| B without k8s_auditor | 26/31 | $0.98 (−62 %) |
+
+**Same tasks pass and fail in both arms** (failures: container-limits-ignore-cpu,
+disallow-anonymous, disallowed-tags, pod-disruption-budget, required-probes).
+In A the auditor ran on 21 of 31 tasks and roughly tripled their cost
+(e.g. must-have-owner $0.152 vs $0.025) without turning a failure into a pass.
+**B qualifies → adopt.** (The two-pass audit was added when the gatekeeper suite
+was at 77 %; with today's k8s-audit skill and models the second pass adds nothing
+here.)

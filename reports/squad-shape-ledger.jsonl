@@ -10,3 +10,4 @@
 {"step": "knowledge-C", "usd": 1.765}
 {"step": "knowledge-judges (estimate: 8 calls, ~12k tokens in each)", "usd": 1.0}
 {"step": "k8s-A", "usd": 2.593}
+{"step": "k8s-B", "usd": 0.982}
