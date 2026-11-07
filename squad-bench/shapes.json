@@ -1,0 +1,10 @@
+{
+  "coding-A": {"squad": "coding", "leader": "coder", "drop": [], "add_tools": []},
+  "coding-B": {"squad": "coding", "leader": "coder", "drop": ["reviewer"], "add_tools": []},
+  "coding-C": {"squad": "coding", "leader": "coder", "drop": ["reviewer", "code_scout"], "add_tools": []},
+  "knowledge-A": {"squad": "knowledge", "leader": "knowledge_leader", "drop": [], "add_tools": []},
+  "knowledge-B": {"squad": "knowledge", "leader": "knowledge_leader", "drop": ["research_critic"], "add_tools": []},
+  "knowledge-C": {"squad": "knowledge", "leader": "knowledge_leader", "drop": ["research_critic", "web_agent"], "add_tools": ["serper", "ddg", "web"]},
+  "k8s-A": {"squad": "kubernetes", "leader": "k8s_leader", "drop": [], "add_tools": []},
+  "k8s-B": {"squad": "kubernetes", "leader": "k8s_leader", "drop": ["k8s_auditor"], "add_tools": []}
+}

@@ -27,6 +27,8 @@ p = json.load(open(f"{d}/permissions.json"))
 p["permissions"]["defaultMode"] = "bypassPermissions"
 json.dump(p, open(f"{d}/permissions.json", "w"))
 PY
+# A squad-shape overlay (squad-bench/shape_overlay.py) goes into the user layer.
+[ -n "${OVERLAY:-}" ] && cp -r "$OVERLAY"/. "$WORK/home/"
 ls "$OMNIS/registry/agents" > "$WORK/names"
 (cd "$OMNIS" && go build -o "$WORK/omnis" .)
 : > "$OUT/requests.jsonl"
