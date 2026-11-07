@@ -1,0 +1,30 @@
+agent                    total   instr  tools tool tok
+Kubernetes               10962    5844     42     5118
+Knowledge                10337    5227     43     5110
+Helper                   10216    5667     27     4549
+Coding                    9439    4729     33     4710
+Skill                     9236    4786     40     4450
+System                    9056    4014     42     5042
+helper                    9012    5127     21     3885
+research_critic           5766    4793      8      973
+k8s_editor                4999    3050     16     1949
+web_agent                 4816    3952      9      864
+Omnis                     4619    3588      7     1031
+Session                   4619    3588      7     1031
+investigator              4451    2712     14     1739
+k8s_cleaner               3886    2246     13     1640
+image_generator           3881    3340      6      541
+k8s_investigator          3878    2139     14     1739
+k8s_validator             3606    2205     10     1401
+linux_admin               3429    1814     15     1615
+k8s_auditor               3395    2012     12     1383
+doc_agent                 3207    1592     15     1615
+reviewer                  2787    1494     11     1293
+code_scout                2423    1726      4      697
+agentmd_reviewer          2327    1575      5      752
+session_search            2149    1442      4      707
+refactorer                2123     777     12     1346
+web_fetcher               2083    1760      3      323
+code_docs                 2004    1409      6      595
+summariser                 552     552      0        0
+SUM                     139258
