@@ -214,3 +214,30 @@ class TestSessionCleanup(unittest.TestCase):
         self.assertEqual(rc, 3)
         self.assertTrue(any(m == "DELETE" and p.endswith("/s1") for m, p in calls),
                         f"session left open after an abort; calls={calls}")
+
+
+class TestPrepareHome(unittest.TestCase):
+    """The per-task OMNIS_HOME gets the allow-all permissions and, when
+    OMNIS_BENCH_OVERLAY names a squad-shape overlay, that overlay too."""
+
+    def test_overlay_copied_into_task_home(self):
+        import tempfile
+        ov = tempfile.mkdtemp()
+        os.makedirs(os.path.join(ov, "registry", "agents", "k8s_leader"))
+        with open(os.path.join(ov, "agents.json"), "w") as f:
+            f.write('{"squads": []}')
+        with open(os.path.join(ov, "registry", "agents", "k8s_leader", "instruction.md"), "w") as f:
+            f.write("note")
+        home = tempfile.mkdtemp()
+        with mock.patch.dict(os.environ, {"OMNIS_BENCH_OVERLAY": ov}):
+            agent.prepare_home(home)
+        self.assertTrue(os.path.exists(os.path.join(home, "permissions.json")))
+        self.assertTrue(os.path.exists(os.path.join(home, "agents.json")))
+        self.assertTrue(os.path.exists(os.path.join(home, "registry", "agents", "k8s_leader", "instruction.md")))
+
+    def test_no_overlay_writes_only_permissions(self):
+        import tempfile
+        home = tempfile.mkdtemp()
+        with mock.patch.dict(os.environ, {"OMNIS_BENCH_OVERLAY": ""}):
+            agent.prepare_home(home)
+        self.assertEqual(sorted(os.listdir(home)), ["permissions.json"])

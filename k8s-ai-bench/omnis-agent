@@ -239,16 +239,12 @@ def free_port():
     return port
 
 
-def spawn_server(kubeconfig):
-    """Start a throwaway omnis-server bound to `kubeconfig`; return (base, proc, home)."""
-    bin_ = os.environ.get("OMNIS_SERVER_BIN") or shutil.which("omnis-server")
-    if not bin_:
-        print("omnis-agent: omnis-server not found (set OMNIS_SERVER_BIN)", file=sys.stderr)
-        sys.exit(4)
-    home = tempfile.mkdtemp(prefix="omnis-kab-")
-    # allow-everything permissions overlay (bypassPermissions) so the squad mutates
-    # the ephemeral cluster without a human; layered over the normal config via the
-    # OMNIS_HOME config layer.
+def prepare_home(home):
+    """Seed a per-task OMNIS_HOME: the allow-everything permissions overlay
+    (bypassPermissions) so the squad mutates the ephemeral cluster without a
+    human, and, when OMNIS_BENCH_OVERLAY names one, a squad-shape overlay
+    (squad-bench/shape_overlay.py) — both layered over the normal config via
+    the OMNIS_HOME config layer."""
     src = os.path.join(HERE, "bench-permissions.json")
     if os.path.exists(src):
         shutil.copy2(src, os.path.join(home, "permissions.json"))
@@ -256,6 +252,19 @@ def spawn_server(kubeconfig):
         with open(os.path.join(home, "permissions.json"), "w") as f:
             json.dump({"permissions": {"defaultMode": "bypassPermissions",
                                        "deny": [], "ask": [], "allow": []}}, f)
+    overlay = os.environ.get("OMNIS_BENCH_OVERLAY", "")
+    if overlay:
+        shutil.copytree(overlay, home, dirs_exist_ok=True)
+
+
+def spawn_server(kubeconfig):
+    """Start a throwaway omnis-server bound to `kubeconfig`; return (base, proc, home)."""
+    bin_ = os.environ.get("OMNIS_SERVER_BIN") or shutil.which("omnis-server")
+    if not bin_:
+        print("omnis-agent: omnis-server not found (set OMNIS_SERVER_BIN)", file=sys.stderr)
+        sys.exit(4)
+    home = tempfile.mkdtemp(prefix="omnis-kab-")
+    prepare_home(home)
     port = free_port()
     base = f"http://127.0.0.1:{port}"
     env = dict(os.environ)
