@@ -17,6 +17,14 @@ Two variants make the A/B that matters:
 (For reference the leaderboard leaders carry ~2–3k: Pi has 4 tools,
 mini-swe-agent a bash tool.)
 
+**Production tiering and squad shapes** (outside the leaderboard rules):
+`TIERED=1` keeps the shipped `models.json` tiers (leader on `premium`,
+sub-agents on their own models, all through the gateway) and prices each agent
+at its own model; `-m` is then only a label. `SHAPE=<arm>` applies a
+`squad-bench/shapes.json` arm (e.g. `coding-C` = without `reviewer` and
+`code_scout`) as an overlay copied into the omnis user layer before the run.
+Example: `TIERED=1 SHAPE=coding-B ./run.sh tb full smoke`.
+
 ## How it maps onto the leaderboard's method
 
 The leaderboard installs each harness as a Harbor *installed agent*

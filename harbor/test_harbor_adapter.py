@@ -134,3 +134,79 @@ class NoReviewVariantTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             make_sysconf.strip_reviewer("no team here\n")
 
+
+
+SHIPPED_MODELS = {
+    "providers": {"openai-compat": {"kind": "openai_compat", "base_url": "https://gw.example/v1", "api_key": "sk-x"}},
+    "models": {
+        "premium": {"provider_ref": "openai-compat", "model": "claude-sonnet-5-5",
+                    "input_token_price_per_million": 2.1, "output_token_price_per_million": 10.5,
+                    "cached_input_token_price_per_million": 0.21},
+        "simple": {"provider_ref": "openai-compat", "model": "Simple",
+                   "input_token_price_per_million": 0.2625, "output_token_price_per_million": 0.525},
+    },
+    "embed_model_ref": "embedder", "override_model_ref": "x", "override_model_enabled": True,
+}
+
+
+def _tiered_tar(d: Path) -> Path:
+    files = {
+        "config/agents.json": json.dumps({"agents": ["coder", "code_scout", "reviewer", "code_docs"], "squads": [
+            {"name": "Coding", "leader": "coder", "members": ["code_scout", "reviewer", "code_docs"]}]}),
+        "config/models.json": json.dumps(SHIPPED_MODELS),
+        "config/permissions.json": "{}",
+        "registry/agents/coder/agent.json": json.dumps({"name": "coder", "tools": ["fs"], "leader": True, "model_ref": "premium"}),
+        "registry/agents/coder/instruction.md": CODER_INSTRUCTION,
+        "registry/agents/code_scout/agent.json": json.dumps({"name": "code_scout", "model_ref": "simple"}),
+        "registry/agents/reviewer/agent.json": json.dumps({"name": "reviewer", "model_ref": "simple"}),
+        "registry/agents/code_docs/agent.json": json.dumps({"name": "code_docs"}),
+    }
+    p = d / "src.tar"
+    with tarfile.open(p, "w") as tf:
+        for name, body in files.items():
+            data = body.encode()
+            ti = tarfile.TarInfo(name)
+            ti.size, ti.mode = len(data), 0o644
+            tf.addfile(ti, io.BytesIO(data))
+    return p
+
+
+class TieredTest(unittest.TestCase):
+    def test_tiered_models_keep_tiers_and_disable_override(self):
+        m = make_sysconf.tiered_models(SHIPPED_MODELS)
+        self.assertEqual(set(m["models"]), {"premium", "simple"})
+        self.assertEqual(m["models"]["premium"]["input_token_price_per_million"], 2.1)
+        self.assertFalse(m["override_model_enabled"])
+        self.assertEqual(m["embed_model_ref"], "")
+        self.assertEqual(m["providers"]["openai-compat"]["base_url"], "OPENAI_BASE_URL")
+        self.assertEqual(m["providers"]["openai-compat"]["api_key"], "OPENAI_API_KEY")
+
+    def test_agent_prices_follow_model_ref(self):
+        with tempfile.TemporaryDirectory() as t:
+            t = Path(t)
+            out = make_sysconf.build(_tiered_tar(t), t / "s", "full", None)
+            p = usage.agent_prices(out)
+            self.assertEqual(p["coder"], (2.1, 10.5, 0.21))
+            self.assertEqual(p["code_scout"], (0.2625, 0.525, None))
+            self.assertEqual(p["code_docs"], (2.1, 10.5, 0.21))  # no model_ref: the leader's
+
+    def test_cost_by_agent_sums_each_agent_at_its_price(self):
+        agents = {"coder": {"calls": 1, "prompt": 1_000_000, "cached": 900_000, "output": 100_000},
+                  "code_scout": {"calls": 1, "prompt": 1_000_000, "cached": 0, "output": 0}}
+        prices = {"coder": (2.1, 10.5, 0.21), "code_scout": (0.2625, 0.525, None)}
+        self.assertAlmostEqual(usage.cost_by_agent(agents, prices, (9, 9, 9)), 1.7115)
+        self.assertAlmostEqual(usage.cost_by_agent({"?": {"calls": 1, "prompt": 1_000_000, "cached": 0, "output": 0}},
+                                                   prices, (1, 1, None)), 1.0)
+
+    def test_shape_overlay_lands_in_user_layer(self):
+        with tempfile.TemporaryDirectory() as t:
+            t = Path(t)
+            out = make_sysconf.build(_tiered_tar(t), t / "s", "full", None, shape="coding-C")
+            a = json.loads((out / "overlay/agents.json").read_text())
+            self.assertEqual(a["squads"][0]["members"], ["code_docs"])
+            self.assertIn("not available", (out / "overlay/registry/agents/coder/instruction.md").read_text())
+            # the shipped layer itself is untouched
+            self.assertEqual(json.loads((out / "agents.json").read_text())["squads"][0]["members"],
+                             ["code_scout", "reviewer", "code_docs"])
+            cmd = make_sysconf.overlay_seed_cmd("/r/sysconf", "/h")
+            self.assertEqual(cmd, "if [ -d /r/sysconf/overlay ]; then cp -r /r/sysconf/overlay/. /h/; fi")

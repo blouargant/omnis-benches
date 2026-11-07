@@ -6,7 +6,9 @@
 #
 # Usage: setup-ab.sh <workdir> <label> <ref|worktree> <port>   (start)
 #        setup-ab.sh <workdir> <label> stop
-# Env: MODEL (gateway model id, default deepseek-v4.1-flash-scaleway),
+# Env: MODEL (gateway model id, default deepseek-v4.1-flash-scaleway; "tiered"
+#      keeps the shipped model tiers = production), OVERLAY (a squad-shape
+#      overlay dir from shape_overlay.py, copied into the arm's user layer),
 #      IN/OUT/CACHE prices ($/M), OMNIS_SRC (default ../../omnis).
 # Then: bench.py --server http://127.0.0.1:<port> --token bench --tasks tasks-prompt-ab.json --suite
 set -euo pipefail
@@ -40,14 +42,18 @@ python3 - "$sys" "$MODEL" "${IN:-0.63}" "${OUT:-1.89}" "${CACHE:-0.126}" <<'PY'
 import json, sys
 d, model, i, o, c = sys.argv[1], sys.argv[2], *map(float, sys.argv[3:])
 m = json.load(open(f"{d}/models.json"))
-m["models"]["abmodel"] = {"provider_ref": "openai-compat", "model": model, "context_length": 229376,
-    "input_token_price_per_million": i, "output_token_price_per_million": o, "cached_input_token_price_per_million": c}
-m["override_model_ref"], m["override_model_enabled"], m["embed_model_ref"] = "abmodel", True, ""
+if model == "tiered":
+    m["override_model_enabled"], m["embed_model_ref"] = False, ""
+else:
+    m["models"]["abmodel"] = {"provider_ref": "openai-compat", "model": model, "context_length": 229376,
+        "input_token_price_per_million": i, "output_token_price_per_million": o, "cached_input_token_price_per_million": c}
+    m["override_model_ref"], m["override_model_enabled"], m["embed_model_ref"] = "abmodel", True, ""
 json.dump(m, open(f"{d}/models.json", "w"), indent=1)
 a = json.load(open(f"{d}/agents.json")); a["serper_key"] = "SERPER_KEY"
 json.dump(a, open(f"{d}/agents.json", "w"), indent=1)
 PY
 echo '{"permissions":{"defaultMode":"bypassPermissions","allow":[],"ask":[],"deny":[]}}' > "$home/permissions.json"
+[[ -n ${OVERLAY:-} ]] && cp -r "$OVERLAY"/. "$home/"
 [[ -f $arm/pid ]] && kill "$(cat "$arm/pid")" 2>/dev/null && sleep 1 || true
 env -u OMNIS_CONFIG_PATH OMNIS_HOME=$home HOME=$home OMNIS_SERVER_ADDR=127.0.0.1:$PORT OMNIS_SERVER_TOKEN=bench \
   OMNIS_UPDATE_CHECK=false OMNIS_NON_INTERACTIVE=1 OMNIS_TURN_MAX_TOKENS=0 OMNIS_TURN_MAX_TOOL_CALLS=0 \
