@@ -22,6 +22,8 @@ declare -A V=(
   [V8]="premium qwen38 high"            # web_agent -> Qwen3.8-27B
   [W0]="premium balanced high develop"                    # omnis develop
   [W1]="premium balanced high perf/knowledge-call-volume" # call-volume bounds
+  [W2]="premium balanced high develop"                    # WebFetch before outline
+  [W3]="premium balanced high feat/webfetch-outline"      # WebFetch outline/section/find
 )
 OMNIS_SRC=${OMNIS_SRC:-$(cd "$(dirname "$0")/../../omnis" && pwd)}
 

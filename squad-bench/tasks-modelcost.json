@@ -8,6 +8,8 @@
     {"id": "mc-arkane", "squad": "knowledge", "kind": "web",
      "prompt": "Que peux-tu trouver sur arkanecloud.com ? est-ce un fournisseur solide ? est-ce qu'il y a des avis dessus ? Compare aussi les tarifs d'Arkane Cloud avec d'autres fournisseurs GPU français."},
     {"id": "mc-kserve", "squad": "knowledge", "kind": "web",
-     "prompt": "How does kserve + vLLM works ?\nhow multiple GPUs are handled ? what kind of parallelism is used , tensor parallelism, data parallelism, pipeline parallelism ?\nAnd finally how vLLM options are handled ?"}
+     "prompt": "How does kserve + vLLM works ?\nhow multiple GPUs are handled ? what kind of parallelism is used , tensor parallelism, data parallelism, pipeline parallelism ?\nAnd finally how vLLM options are handled ?"},
+    {"id": "mc-moe", "squad": "knowledge", "kind": "web",
+     "prompt": "Comment le MOE Routing fonctionne avec plusieurs GPUs ?"}
   ]
 }
