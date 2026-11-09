@@ -66,3 +66,41 @@ tuning the injected rules first closes the gap. Next, cheapest first:
 3. If corrections are still missed, build the catch-up pass (idle session → one
    cheap model call over the user's messages + current index → proposed
    `memory_save` calls applied with chips).
+
+## Tuning (same night) — `tune-memory-rules`
+
+Raw records: `collection-memory-2026-11-09-tuning.jsonl`. The run tag was
+removed from the prompts first (`memory_bench.py`), so every arm below is free
+of the commit-hunt artefact.
+
+| Arm | balanced | high |
+|---|---|---|
+| baseline: develop 240711f, no tag (correction + explicit) | 1/6 | 1/6 |
+| v1: imperative rules (MUST save a correction before answering; never claim "noted" without saving) + `memory_save` description | 0/6 | 5/6 |
+| v2: v1 + EVERY memory type inlined (project/reference were index lines only) | 2/6 | 5/6 (one run: 77 `memory_save` calls in one turn, $0.95) |
+
+The two remaining causes, read from the transcripts:
+- a `project` memory injected as an index line was answered by its **name**
+  ("integration-test-db") instead of its content → v2 inlines every body,
+  demoting reference/project before feedback/user over the budget;
+- the imperative rule re-fired after each save (the block changes, the user
+  message still is a correction) → v3 adds "save each subject once, then
+  answer" and a host-side cap of 5 memory writes per turn.
+
+**v3, full suite (5 scenarios × 3):**
+
+| Tier | first run | v3 | cost first → v3 |
+|---|---|---|---|
+| balanced | 8/15 | **13/15** | $0.60 → $0.60 |
+| high | 7/15 | **15/15** | $0.72 → $0.74 |
+| premium | 13/15 | **14/15** | $1.88 → $1.89 |
+
+Max memory writes in one scenario run: 3; no timeouts. Remaining failures:
+balanced missed one correction save (1/3 correction runs) and one arithmetic
+answer; premium's forget run deleted the memory but its answer still named
+"Linear" (it said it had been told to forget it — the check is strict).
+
+**Decision:** ship v3. In production every answering root except Helper runs on
+premium, where v3 is at least as good. The catch-up pass (spec step 4) is not
+needed for premium/high; it would only serve balanced (Helper) — not worth
+building for now.

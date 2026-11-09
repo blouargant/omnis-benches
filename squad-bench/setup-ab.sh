@@ -38,7 +38,8 @@ if [[ ! -x $arm/src/bin/omnis-server ]]; then
 fi
 sys=$arm/sys; home=$arm/home
 rm -rf "$sys" "$home"; mkdir -p "$sys" "$home"
-cp -r "$arm/src/config/"* "$sys/"; cp -r "$arm/src/registry" "$arm/src/softskills" "$sys/"
+cp -r "$arm/src/config/"* "$sys/"; cp -r "$arm/src/registry" "$sys/"
+[[ -d $arm/src/softskills ]] && cp -r "$arm/src/softskills" "$sys/"   # gone from omnis after 240711f
 python3 - "$sys" "$MODEL" "${IN:-0.63}" "${OUT:-1.89}" "${CACHE:-0.126}" <<'PY'
 import json, sys
 d, model, i, o, c = sys.argv[1], sys.argv[2], *map(float, sys.argv[3:])

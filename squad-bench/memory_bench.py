@@ -81,7 +81,7 @@ def evaluate(scn, step_answers, mems):
     return checks
 
 
-def run_scenario(base, token, scn, deadline, tag):
+def run_scenario(base, token, scn, deadline):
     cols = {"main": new_collection(base, token, scn["id"])}
     workdir = tempfile.mkdtemp(prefix="membench-")
     sessions, answers, steps_out = {}, [], []
@@ -97,8 +97,10 @@ def run_scenario(base, token, scn, deadline, tag):
             body = {"collection": cols[key], "dir": workdir, "name": f"mb-{scn['id']}-{step['session']}"}
             sess = bench.api("POST", base, "/api/sessions", token, body)
             sid = sessions[step["session"]] = sess.get("session_id") or sess.get("id")
-        prompt = step["prompt"] + f"\n\n(run {tag})"  # defeat the gateway response cache
-        m, ans = run_step(base, token, sid, prompt, deadline)
+        # No cache-busting tag on the prompt: "(run 1d8a19da)" read like a commit
+        # id and sent agents hunting for it. Each run's collection name differs and
+        # sits in the system prompt, which already defeats the gateway cache.
+        m, ans = run_step(base, token, sid, step["prompt"], deadline)
         answers.append(ans)
         writes = sum(m["leader_tools"].get(t, 0) for t in MEMORY_WRITE_TOOLS)
         cost = sum(x["est_cost_usd"] for x in m["models"].values())
@@ -131,7 +133,7 @@ def main():
     ap.add_argument("--server", default=os.environ.get("OMNIS_SERVER", "http://127.0.0.1:8080"))
     ap.add_argument("--token", default=os.environ.get("OMNIS_SERVER_TOKEN", ""))
     ap.add_argument("--tasks", default=os.path.join(HERE, "tasks-memory.json"))
-    ap.add_argument("--scenario", help="run one scenario by id")
+    ap.add_argument("--scenario", help="run only these scenarios (comma-separated ids)")
     ap.add_argument("--repeat", type=int, default=1)
     ap.add_argument("--deadline", type=int, default=420, help="per-step wall-clock cap (s)")
     ap.add_argument("--label", default="", help="tag stored in every record (e.g. the model tier)")
@@ -140,11 +142,11 @@ def main():
     with open(args.tasks) as f:
         scns = json.load(f)["scenarios"]
     if args.scenario:
-        scns = [s for s in scns if s["id"] == args.scenario] or sys.exit(f"no scenario {args.scenario}")
+        want = args.scenario.split(",")
+        scns = [s for s in scns if s["id"] in want] or sys.exit(f"no scenario {args.scenario}")
     for i in range(args.repeat):
         for scn in scns:
-            tag = uuid.uuid4().hex[:8]
-            rec = run_scenario(args.server, args.token, scn, args.deadline, tag)
+            rec = run_scenario(args.server, args.token, scn, args.deadline)
             rec["label"], rec["sample"] = args.label, i + 1
             fails = [k for k, v in rec["checks"].items() if not v]
             print(f"[{args.label}] {scn['id']:<13} #{i+1} {'PASS' if rec['passed'] else 'FAIL'}"
