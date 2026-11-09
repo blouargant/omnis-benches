@@ -7,7 +7,8 @@
 # Usage: setup-ab.sh <workdir> <label> <ref|worktree> <port>   (start)
 #        setup-ab.sh <workdir> <label> stop
 # Env: MODEL (gateway model id, default deepseek-v4.1-flash-scaleway; "tiered"
-#      keeps the shipped model tiers = production), OVERLAY (a squad-shape
+#      keeps the shipped model tiers = production; "ref:<name>" forces that
+#      catalogue model, with its own prices, onto every agent), OVERLAY (a squad-shape
 #      overlay dir from shape_overlay.py, copied into the arm's user layer),
 #      IN/OUT/CACHE prices ($/M), OMNIS_SRC (default ../../omnis).
 # Then: bench.py --server http://127.0.0.1:<port> --token bench --tasks tasks-prompt-ab.json --suite
@@ -44,6 +45,8 @@ d, model, i, o, c = sys.argv[1], sys.argv[2], *map(float, sys.argv[3:])
 m = json.load(open(f"{d}/models.json"))
 if model == "tiered":
     m["override_model_enabled"], m["embed_model_ref"] = False, ""
+elif model.startswith("ref:"):   # force one CATALOGUE model (its own prices) onto the fleet
+    m["override_model_ref"], m["override_model_enabled"], m["embed_model_ref"] = model[4:], True, ""
 else:
     m["models"]["abmodel"] = {"provider_ref": "openai-compat", "model": model, "context_length": 229376,
         "input_token_price_per_million": i, "output_token_price_per_million": o, "cached_input_token_price_per_million": c}

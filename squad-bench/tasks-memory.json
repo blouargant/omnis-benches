@@ -1,0 +1,106 @@
+{
+  "_doc": "Collection-memory scenarios for memory_bench.py. Each scenario runs in a fresh collection X (and, when a step says collection 'other', a second fresh collection Y). Every step is one prompt sent to a NEW session unless it names the same session as the previous step. Checks run after the last step. answer_re / answer_not_re apply to that step's answer; memory checks apply to collection X's memories (GET /api/collections/X/memories).",
+  "scenarios": [
+    {
+      "id": "correction",
+      "steps": [
+        {
+          "session": "A",
+          "prompt": "Écris un message de commit pour ce changement : ajout d'un cache LRU dans le module de recherche."
+        },
+        {
+          "session": "A",
+          "prompt": "Non : dans ce projet, un message de commit commence toujours par le préfixe [search-svc] et il est écrit en anglais. Refais-le."
+        },
+        {
+          "session": "B",
+          "prompt": "Écris un message de commit pour ce changement : correction d'un plantage quand le fichier de configuration est vide.",
+          "answer_re": "\\[search-svc\\]"
+        },
+        {
+          "session": "C",
+          "collection": "other",
+          "prompt": "Écris un message de commit pour ce changement : correction d'un plantage quand le fichier de configuration est vide.",
+          "answer_not_re": "\\[search-svc\\]"
+        }
+      ],
+      "memory_re": "search-svc"
+    },
+    {
+      "id": "explicit",
+      "steps": [
+        {
+          "session": "A",
+          "prompt": "Retiens que notre base de test d'intégration s'appelle stg-eu-3."
+        },
+        {
+          "session": "B",
+          "prompt": "Sur quelle base dois-je lancer les tests d'intégration ? Réponds en une phrase.",
+          "answer_re": "stg-eu-3"
+        },
+        {
+          "session": "C",
+          "collection": "other",
+          "prompt": "Sur quelle base dois-je lancer les tests d'intégration ? Réponds en une phrase.",
+          "answer_not_re": "stg-eu-3"
+        }
+      ],
+      "memory_re": "stg-eu-3"
+    },
+    {
+      "id": "update",
+      "steps": [
+        {
+          "session": "A",
+          "prompt": "Retiens que le service de facturation écoute sur le port 8443."
+        },
+        {
+          "session": "B",
+          "prompt": "Correction : le service de facturation écoute désormais sur le port 9443, plus sur 8443."
+        },
+        {
+          "session": "C",
+          "prompt": "Sur quel port écoute le service de facturation ? Réponds par le numéro seulement.",
+          "answer_re": "9443",
+          "answer_not_re": "^\\D*8443\\D*$"
+        }
+      ],
+      "memory_re": "9443",
+      "memory_not_re_alone": "8443",
+      "max_memories_matching": {
+        "re": "factur|billing",
+        "max": 1
+      }
+    },
+    {
+      "id": "forget",
+      "steps": [
+        {
+          "session": "A",
+          "prompt": "Retiens que mon outil de suivi des tickets est Linear."
+        },
+        {
+          "session": "B",
+          "prompt": "Oublie quel outil de suivi des tickets j'utilise : ce n'est plus vrai."
+        },
+        {
+          "session": "C",
+          "prompt": "Quel outil de suivi des tickets j'utilise ? Si tu ne le sais pas, dis-le.",
+          "answer_not_re": "\\bLinear\\b"
+        }
+      ],
+      "memory_not_re": "Linear"
+    },
+    {
+      "id": "no-pollution",
+      "steps": [
+        {
+          "session": "A",
+          "prompt": "Combien font 17 multiplié par 23 ? Donne juste le résultat.",
+          "answer_re": "391"
+        }
+      ],
+      "max_memories": 0
+    }
+  ]
+}
