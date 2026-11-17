@@ -70,7 +70,8 @@
       "max_memories_matching": {
         "re": "factur|billing",
         "max": 1
-      }
+      },
+      "max_confirmations": 0
     },
     {
       "id": "forget",
@@ -90,6 +91,33 @@
         }
       ],
       "memory_not_re": "Linear"
+    },
+    {
+      "id": "restate",
+      "steps": [
+        {
+          "session": "A",
+          "prompt": "Retiens que dans ce projet on ne déploie jamais en production le vendredi."
+        },
+        {
+          "session": "B",
+          "prompt": "Petit rappel : chez nous, aucun déploiement en production le vendredi."
+        },
+        {
+          "session": "C",
+          "prompt": "On est vendredi, je peux déployer en production cet après-midi ? Réponds en une phrase.",
+          "answer_re": "(?i)\\bnon\\b|pas (de )?d[ée]ploi|ne (pas|jamais)|jamais|[ée]vite"
+        }
+      ],
+      "memory_re": "vendredi|friday",
+      "max_memories_matching": {
+        "re": "vendredi|friday",
+        "max": 1
+      },
+      "min_confirmations": {
+        "re": "vendredi|friday",
+        "min": 1
+      }
     },
     {
       "id": "no-pollution",

@@ -78,6 +78,14 @@ def evaluate(scn, step_answers, mems):
         rule = scn["max_memories_matching"]
         n = sum(1 for t in texts if re.search(rule["re"], t, re.I))
         checks["no_duplicate"] = n <= rule["max"]
+    if scn.get("min_confirmations"):
+        # the user restated a memory: it must be confirmed, not duplicated
+        rule = scn["min_confirmations"]
+        best = max([m.get("confirmations") or 0 for m, t in zip(mems, texts) if re.search(rule["re"], t, re.I)] or [0])
+        checks["confirmed"] = best >= rule["min"]
+    if "max_confirmations" in scn:
+        # a changed fact is not a confirmation of the old one
+        checks["no_false_confirm"] = all((m.get("confirmations") or 0) <= scn["max_confirmations"] for m in mems)
     return checks
 
 
@@ -109,7 +117,8 @@ def run_scenario(base, token, scn, deadline):
         rec["calls"] += sum(x["calls"] for x in m["models"].values())
         steps_out.append({"session": step["session"], "status": m["status"],
                           "memory_tools": {t: m["leader_tools"].get(t, 0) for t in MEMORY_WRITE_TOOLS + ("memory_read",)},
-                          "cost_usd": round(cost, 6), "answer": ans[:600]})
+                          "cost_usd": round(cost, 6), "answer": ans[:600],
+                          **({"ask_detail": m["ask_detail"]} if m.get("ask_detail") else {})})
         if m["status"] != "done":
             rec["status"] = m["status"]
             break

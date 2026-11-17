@@ -47,3 +47,12 @@ class EvaluateTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_confirmation_checks():
+    import memory_bench as mb
+    scn = {"steps": [], "min_confirmations": {"re": "vendredi", "min": 1}, "max_confirmations": 0}
+    ok = mb.evaluate(scn, [], [{"name": "no-friday", "body": "pas le vendredi", "confirmations": 1}])
+    assert ok["confirmed"] and not ok["no_false_confirm"]
+    no = mb.evaluate({"steps": [], "min_confirmations": {"re": "vendredi", "min": 1}}, [], [{"name": "x", "body": "pas le vendredi"}])
+    assert not no["confirmed"]
