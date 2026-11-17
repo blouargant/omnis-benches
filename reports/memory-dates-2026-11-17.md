@@ -56,4 +56,10 @@ Precision on high is 1.00 in all six conversations, and no forbidden item was sa
 
 Keep the change.
 
-Open point, not memory: balanced wanders into `cd /home/…` for a plain commit-message request. The bench could allow it, or the router could keep such requests off the hands-on squad.
+## Follow-up: the permission card was an omnis bug
+
+The bench sets `defaultMode: bypassPermissions` in the user layer, so the `cd /` card should never have appeared. It did because `permissions.Merge` took the system layer's mode (`acceptEdits`, shipped since 2026-11-08) over every user-layer mode. Fixed in omnis (the highest layer that names a mode wins). Re-run of `correction` on balanced with the fix: **4/4** (label `modefix-balanced`).
+
+Every bench run since `acceptEdits` shipped therefore ran in `acceptEdits` instead of `bypassPermissions`. Only commands hitting an explicit `ask` rule were affected: they surfaced as `ask_user` failures and were not silently mis-scored.
+
+What remains is model behaviour, not memory: balanced sometimes treats "write a commit message for this change" as work in a repository and invents a path (`/home/user/repos/vibe-coding`).
