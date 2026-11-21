@@ -1,0 +1,51 @@
+[
+ {
+  "id": "675f68476589",
+  "agent": "coder",
+  "tool": "lsp_diagnostics",
+  "signature": "675f68476589710c3d57985521557ed9e05a5780d4eb0aac2456799dfb6ae9ff",
+  "state": "hint",
+  "created": "2026-11-20T21:01:20.355287628Z",
+  "last_seen": "2026-11-20T21:01:35.221127311Z",
+  "seen": "2",
+  "hinted": "1",
+  "recovered": "1",
+  "repeated": "0",
+  "seen_in_prompt": "0",
+  "sessions": "wired-cow,more-clam",
+  "outcomes": "1",
+  "_body": "Cue: lsp_diagnostics rejects 'file_path' argument\nText: Use 'file' instead of 'file_path' to specify the file for diagnostics.\n\nFailed:\n```\nvalidating root: unexpected additional properties [\"file_path\"]\n```\n\nWorked:\n```\n{\"file\":\"worker.go\"}\n```"
+ },
+ {
+  "id": "830cc3865a87",
+  "agent": "coder",
+  "tool": "Edit",
+  "signature": "830cc3865a87b03f281315b72fa2b0de4aa8a3e45803fa9fe33e7e14ff285425",
+  "state": "hint",
+  "created": "2026-11-20T21:01:09.325334943Z",
+  "last_seen": "2026-11-20T21:01:09.325334943Z",
+  "seen": "1",
+  "hinted": "0",
+  "recovered": "0",
+  "repeated": "0",
+  "seen_in_prompt": "0",
+  "sessions": "magnetic-starling",
+  "_body": "Cue: old_string appears multiple times in the file\nText: Include surrounding context or set replace_all to true to make the old_string unique.\n\nFailed:\n```\nError: old_string appears 2 times in /tmp/lessons-lsp-diag-timeout-kgatna54/handlers.go \u2014 set replace_all:true or provide more context to make it unique\n```\n\nWorked:\n```\n{\"file_path\":\"handlers.go\",\"new_string\":\"func handleUpload(w http.ResponseWriter, r *http.Request) {\\n\\tctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)\",\"old_string\":\"func handleUpload(w http.ResponseWriter, r *http.Request) {\\n\\tctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)\"}\n```"
+ },
+ {
+  "id": "fb21da2a7151",
+  "agent": "coder",
+  "tool": "Read",
+  "signature": "fb21da2a71514ab51c57da6a4945d726d7c3151b0e9232c50276a505e06a69b2",
+  "state": "hint",
+  "created": "2026-11-20T21:01:53.735835929Z",
+  "last_seen": "2026-11-20T21:01:53.735835929Z",
+  "seen": "1",
+  "hinted": "0",
+  "recovered": "0",
+  "repeated": "0",
+  "seen_in_prompt": "0",
+  "sessions": "worthy-salmon",
+  "_body": "Cue: File not found when using an incorrect subdirectory in the file path\nText: Use the correct relative file path relative to the current working directory.\n\nFailed:\n```\nError reading /tmp/lessons-read-missing-svc-r3wh8d03/cmd/server.go: open /tmp/lessons-read-missing-svc-r3wh8d03/cmd/server.go: no such file or directory\n```\n\nWorked:\n```\n{\"file_path\":\"server.go\"}\n```"
+ }
+]

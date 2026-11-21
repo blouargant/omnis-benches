@@ -1,0 +1,34 @@
+[
+ {
+  "id": "331bc0222faa",
+  "agent": "coder",
+  "tool": "Bash",
+  "signature": "331bc0222faa8e5419a77d9e11ed0beaa54b6e56987813eec9b08702d870ec28",
+  "state": "hint",
+  "created": "2026-11-21T00:18:28.968757899Z",
+  "last_seen": "2026-11-21T00:18:28.968757899Z",
+  "seen": "1",
+  "hinted": "0",
+  "recovered": "0",
+  "repeated": "0",
+  "seen_in_prompt": "0",
+  "sessions": "internal-roughy",
+  "_body": "Cue: ./bin/acme release notes missing required --since-tag argument\nText: Always include the --since-tag argument when calling ./bin/acme release notes to prevent error E42.\n\nFailed:\n```\nerror: E42\n```\n\nWorked:\n```\n{\"command\":\"./bin/acme release notes --since-tag none\"}\n```"
+ },
+ {
+  "id": "52947928504d",
+  "agent": "coder",
+  "tool": "Bash",
+  "signature": "52947928504dab24ff27b77cd129312e6857d0b76f978e12fb962f511727de36",
+  "state": "hint",
+  "created": "2026-11-21T00:18:13.882102674Z",
+  "last_seen": "2026-11-21T00:18:13.882102674Z",
+  "seen": "1",
+  "hinted": "0",
+  "recovered": "0",
+  "repeated": "0",
+  "seen_in_prompt": "0",
+  "sessions": "sunny-rodent",
+  "_body": "Cue: missing database configuration in migrate script\nText: include the --db flag with the database connection string when calling the script\n\nFailed:\n```\nerror: no database configured; pass --db sqlite:./dev.db\n```\n\nWorked:\n```\n{\"command\":\"./scripts/migrate.sh status --db sqlite:./dev.db\"}\n```"
+ }
+]

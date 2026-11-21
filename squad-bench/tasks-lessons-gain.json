@@ -1,0 +1,431 @@
+{
+ "tasks": [
+  {
+   "id": "build-1",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "build",
+   "trap_kind": "explicit",
+   "marker": "--profile is required",
+   "exposure": 1,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "Build the project with the project CLI (`./bin/acme build`, development profile) and tell me the artifact id it prints. If a command fails, work out why and get it to succeed. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "answer": "/ACME-B41K/"
+    }
+   ]
+  },
+  {
+   "id": "migrate-1",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "migrate",
+   "trap_kind": "explicit",
+   "marker": "no database configured",
+   "exposure": 1,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "Run `./scripts/migrate.sh status` against the local dev database and tell me the check id it prints. If a command fails, work out why and get it to succeed. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "answer": "/ACME-M77X/"
+    }
+   ]
+  },
+  {
+   "id": "test-1",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "test",
+   "trap_kind": "opaque",
+   "marker": "FATAL: workspace not initialised",
+   "exposure": 1,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "Run the test suite with `make test` and tell me the run id it prints. If a command fails, work out why and get it to succeed. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "answer": "/ACME-T93D/"
+    }
+   ]
+  },
+  {
+   "id": "notes-1",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "notes",
+   "trap_kind": "opaque",
+   "marker": "error: E42",
+   "exposure": 1,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "Generate the release notes with `./bin/acme release notes` and tell me the notes id it prints. If a command fails, work out why and get it to succeed. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "answer": "/ACME-R58P/"
+    }
+   ]
+  },
+  {
+   "id": "control-1",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "control",
+   "trap_kind": "control",
+   "marker": null,
+   "exposure": 1,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "In lib/strings.sh add a function `lower` that lower-cases its argument, in the same style as `upper`. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "file": "lib/strings.sh",
+     "match": "/lower\\(\\)/"
+    }
+   ]
+  },
+  {
+   "id": "build-2",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "build",
+   "trap_kind": "explicit",
+   "marker": "--profile is required",
+   "exposure": 2,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "First add the comment line `# reviewed` as the last line of lib/strings.sh. Then build the project with the project CLI (`./bin/acme build`, development profile) and tell me the artifact id it prints. If a command fails, work out why and get it to succeed. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "answer": "/ACME-B41K/"
+    }
+   ]
+  },
+  {
+   "id": "migrate-2",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "migrate",
+   "trap_kind": "explicit",
+   "marker": "no database configured",
+   "exposure": 2,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "First add the comment line `# reviewed` as the last line of lib/strings.sh. Then run `./scripts/migrate.sh status` against the local dev database and tell me the check id it prints. If a command fails, work out why and get it to succeed. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "answer": "/ACME-M77X/"
+    }
+   ]
+  },
+  {
+   "id": "test-2",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "test",
+   "trap_kind": "opaque",
+   "marker": "FATAL: workspace not initialised",
+   "exposure": 2,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "First add the comment line `# reviewed` as the last line of lib/strings.sh. Then run the test suite with `make test` and tell me the run id it prints. If a command fails, work out why and get it to succeed. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "answer": "/ACME-T93D/"
+    }
+   ]
+  },
+  {
+   "id": "notes-2",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "notes",
+   "trap_kind": "opaque",
+   "marker": "error: E42",
+   "exposure": 2,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "First add the comment line `# reviewed` as the last line of lib/strings.sh. Then generate the release notes with `./bin/acme release notes` and tell me the notes id it prints. If a command fails, work out why and get it to succeed. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "answer": "/ACME-R58P/"
+    }
+   ]
+  },
+  {
+   "id": "control-2",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "control",
+   "trap_kind": "control",
+   "marker": null,
+   "exposure": 2,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "Tell me which functions lib/strings.sh defines. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "answer": "/trim_left/"
+    }
+   ]
+  },
+  {
+   "id": "build-3",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "build",
+   "trap_kind": "explicit",
+   "marker": "--profile is required",
+   "exposure": 3,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "First add a function `lower` to lib/strings.sh that lower-cases its argument (same style as `upper`). Then build the project with the project CLI (`./bin/acme build`, development profile) and tell me the artifact id it prints. If a command fails, work out why and get it to succeed. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "answer": "/ACME-B41K/"
+    }
+   ]
+  },
+  {
+   "id": "migrate-3",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "migrate",
+   "trap_kind": "explicit",
+   "marker": "no database configured",
+   "exposure": 3,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "First add a function `lower` to lib/strings.sh that lower-cases its argument (same style as `upper`). Then run `./scripts/migrate.sh status` against the local dev database and tell me the check id it prints. If a command fails, work out why and get it to succeed. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "answer": "/ACME-M77X/"
+    }
+   ]
+  },
+  {
+   "id": "test-3",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "test",
+   "trap_kind": "opaque",
+   "marker": "FATAL: workspace not initialised",
+   "exposure": 3,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "First add a function `lower` to lib/strings.sh that lower-cases its argument (same style as `upper`). Then run the test suite with `make test` and tell me the run id it prints. If a command fails, work out why and get it to succeed. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "answer": "/ACME-T93D/"
+    }
+   ]
+  },
+  {
+   "id": "notes-3",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "notes",
+   "trap_kind": "opaque",
+   "marker": "error: E42",
+   "exposure": 3,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "First add a function `lower` to lib/strings.sh that lower-cases its argument (same style as `upper`). Then generate the release notes with `./bin/acme release notes` and tell me the notes id it prints. If a command fails, work out why and get it to succeed. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "answer": "/ACME-R58P/"
+    }
+   ]
+  },
+  {
+   "id": "control-3",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "control",
+   "trap_kind": "control",
+   "marker": null,
+   "exposure": 3,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "In lib/main.sh, replace the word hello with world. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "file": "lib/main.sh",
+     "match": "/world/"
+    }
+   ]
+  },
+  {
+   "id": "build-4",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "build",
+   "trap_kind": "explicit",
+   "marker": "--profile is required",
+   "exposure": 4,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "First change the README title from `# acme` to `# acme toolkit`. Then build the project with the project CLI (`./bin/acme build`, development profile) and tell me the artifact id it prints. If a command fails, work out why and get it to succeed. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "answer": "/ACME-B41K/"
+    }
+   ]
+  },
+  {
+   "id": "migrate-4",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "migrate",
+   "trap_kind": "explicit",
+   "marker": "no database configured",
+   "exposure": 4,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "First change the README title from `# acme` to `# acme toolkit`. Then run `./scripts/migrate.sh status` against the local dev database and tell me the check id it prints. If a command fails, work out why and get it to succeed. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "answer": "/ACME-M77X/"
+    }
+   ]
+  },
+  {
+   "id": "test-4",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "test",
+   "trap_kind": "opaque",
+   "marker": "FATAL: workspace not initialised",
+   "exposure": 4,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "First change the README title from `# acme` to `# acme toolkit`. Then run the test suite with `make test` and tell me the run id it prints. If a command fails, work out why and get it to succeed. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "answer": "/ACME-T93D/"
+    }
+   ]
+  },
+  {
+   "id": "notes-4",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "notes",
+   "trap_kind": "opaque",
+   "marker": "error: E42",
+   "exposure": 4,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "First change the README title from `# acme` to `# acme toolkit`. Then generate the release notes with `./bin/acme release notes` and tell me the notes id it prints. If a command fails, work out why and get it to succeed. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "answer": "/ACME-R58P/"
+    }
+   ]
+  },
+  {
+   "id": "control-4",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "control",
+   "trap_kind": "control",
+   "marker": null,
+   "exposure": 4,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "Tell me what `make lint` prints. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "answer": "/lint ok/"
+    }
+   ]
+  },
+  {
+   "id": "build-5",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "build",
+   "trap_kind": "explicit",
+   "marker": "--profile is required",
+   "exposure": 5,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "First add the comment line `# entry point` as the second line of lib/main.sh. Then build the project with the project CLI (`./bin/acme build`, development profile) and tell me the artifact id it prints. If a command fails, work out why and get it to succeed. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "answer": "/ACME-B41K/"
+    }
+   ]
+  },
+  {
+   "id": "migrate-5",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "migrate",
+   "trap_kind": "explicit",
+   "marker": "no database configured",
+   "exposure": 5,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "First add the comment line `# entry point` as the second line of lib/main.sh. Then run `./scripts/migrate.sh status` against the local dev database and tell me the check id it prints. If a command fails, work out why and get it to succeed. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "answer": "/ACME-M77X/"
+    }
+   ]
+  },
+  {
+   "id": "test-5",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "test",
+   "trap_kind": "opaque",
+   "marker": "FATAL: workspace not initialised",
+   "exposure": 5,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "First add the comment line `# entry point` as the second line of lib/main.sh. Then run the test suite with `make test` and tell me the run id it prints. If a command fails, work out why and get it to succeed. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "answer": "/ACME-T93D/"
+    }
+   ]
+  },
+  {
+   "id": "notes-5",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "notes",
+   "trap_kind": "opaque",
+   "marker": "error: E42",
+   "exposure": 5,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "First add the comment line `# entry point` as the second line of lib/main.sh. Then generate the release notes with `./bin/acme release notes` and tell me the notes id it prints. If a command fails, work out why and get it to succeed. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "answer": "/ACME-R58P/"
+    }
+   ]
+  },
+  {
+   "id": "control-5",
+   "squad": "coding",
+   "fixture": "acme",
+   "kind": "lessons-gain",
+   "trap": "control",
+   "trap_kind": "control",
+   "marker": null,
+   "exposure": 5,
+   "cwd": "${GAIN_FIXTURES}/acme",
+   "prompt": "How many lines does docs/RELEASING.md have? Give the number. Work directly, do not delegate. Reply with one short line.",
+   "check": [
+    {
+     "answer": "/\\b6\\b/"
+    }
+   ]
+  }
+ ]
+}

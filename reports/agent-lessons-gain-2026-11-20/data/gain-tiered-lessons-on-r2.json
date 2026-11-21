@@ -1,0 +1,34 @@
+[
+ {
+  "id": "331bc0222faa",
+  "agent": "coder",
+  "tool": "Bash",
+  "signature": "331bc0222faa8e5419a77d9e11ed0beaa54b6e56987813eec9b08702d870ec28",
+  "state": "hint",
+  "created": "2026-11-21T00:18:28.929310435Z",
+  "last_seen": "2026-11-21T00:18:28.929310435Z",
+  "seen": "1",
+  "hinted": "0",
+  "recovered": "0",
+  "repeated": "0",
+  "seen_in_prompt": "0",
+  "sessions": "quiet-treefrog",
+  "_body": "Cue: acme release notes fails with E42\nText: Add the --since-tag none argument to the command to avoid the error.\n\nFailed:\n```\nerror: E42\n```\n\nWorked:\n```\n{\"command\":\"./bin/acme release notes --since-tag none\"}\n```"
+ },
+ {
+  "id": "52947928504d",
+  "agent": "coder",
+  "tool": "Bash",
+  "signature": "52947928504dab24ff27b77cd129312e6857d0b76f978e12fb962f511727de36",
+  "state": "hint",
+  "created": "2026-11-21T00:18:15.81475013Z",
+  "last_seen": "2026-11-21T00:18:15.81475013Z",
+  "seen": "1",
+  "hinted": "0",
+  "recovered": "0",
+  "repeated": "0",
+  "seen_in_prompt": "0",
+  "sessions": "normal-mullet",
+  "_body": "Cue: Missing required database configuration in migrate script\nText: Always include the --db flag with the appropriate connection string when calling the migrate script.\n\nFailed:\n```\nerror: no database configured; pass --db sqlite:./dev.db\n```\n\nWorked:\n```\n{\"command\":\"./scripts/migrate.sh status --db sqlite:./dev.db\"}\n```"
+ }
+]

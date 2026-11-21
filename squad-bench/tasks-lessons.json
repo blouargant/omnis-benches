@@ -1,0 +1,117 @@
+{
+ "tasks": [
+  {
+   "id": "lsp-diag-timeout",
+   "squad": "coding",
+   "fixture": "timeout-go",
+   "cwd": "${LESSONS_FIXTURES}/timeout-go",
+   "kind": "lessons",
+   "prompt": "In handlers.go, raise the request timeout of handleUpload from 5 seconds to 30 seconds and leave handleDownload as it is. Then check the file with the language server's diagnostics (lsp_diagnostics). Work directly, do not delegate.",
+   "check": [
+    {
+     "file": "handlers.go",
+     "match": "/handleUpload[^}]*30\\s*\\*\\s*time\\.Second/"
+    },
+    {
+     "file": "handlers.go",
+     "match": "/handleDownload[^}]*5\\s*\\*\\s*time\\.Second/"
+    },
+    {
+     "tool": "lsp_diagnostics"
+    }
+   ],
+   "error": "Hoped for: lsp_diagnostics called with `file_path` (its schema wants `file`). Observed: that error in 0 of 5 bench sessions (on 0/3, off 0/2) and in 1 of 2 probe sessions on this fixture (unprompted, in an earlier version of the task); instead an Edit whose one-line old_string appears twice in on 1, on 2, off 2 and in 1 of 2 probe sessions on this fixture; a todo_write schema error in on 3.",
+   "notes": "Observed on ba96fa5 / balanced (1 sample per run): errors in 4 of 5 sessions, none of them the lsp_diagnostics error. The check also requires a successful lsp_diagnostics call."
+  },
+  {
+   "id": "lsp-diag-worker",
+   "squad": "coding",
+   "fixture": "worker-go",
+   "cwd": "${LESSONS_FIXTURES}/worker-go",
+   "kind": "lessons",
+   "prompt": "In worker.go, make the error branch of run increment the package variable `failures` before it returns. Then check the file with the language server's diagnostics (lsp_diagnostics). Work directly, do not delegate.",
+   "check": [
+    {
+     "file": "worker.go",
+     "match": "/if err != nil \\{[\\s\\S]*failures\\+\\+[\\s\\S]*return/"
+    },
+    {
+     "tool": "lsp_diagnostics"
+    }
+   ],
+   "error": "Hoped for: lsp_diagnostics with `file_path`. Observed: on 2/3 sessions (runs 1 and 2), off 0/2; 1 of 1 probe session.",
+   "notes": "Observed on ba96fa5 / balanced (1 sample per run): the only task where the lsp_diagnostics error showed in more than one bench session. Same signature as the other lsp-diag tasks, so a lesson from one is hinted in the others. The check also requires a successful lsp_diagnostics call."
+  },
+  {
+   "id": "lsp-diag-svc",
+   "squad": "coding",
+   "fixture": "svc-go",
+   "cwd": "${LESSONS_FIXTURES}/svc-go",
+   "kind": "lessons",
+   "prompt": "In config.go, make parseConfig return the default port \"9090\" instead of \"8080\". Then check the file with the language server's diagnostics (lsp_diagnostics). Work directly, do not delegate.",
+   "check": [
+    {
+     "file": "config.go",
+     "match": "/Port: \"9090\"/"
+    },
+    {
+     "tool": "lsp_diagnostics"
+    }
+   ],
+   "error": "Hoped for: lsp_diagnostics with `file_path`. Observed: never (on 0/3, off 0/2, probe 0/1).",
+   "notes": "Observed on ba96fa5 / balanced (1 sample per run): no tool error at all in 6 sessions; kept as a session on the lsp_diagnostics signature but it measures nothing. The check also requires a successful lsp_diagnostics call."
+  },
+  {
+   "id": "lsp-diag-limiter",
+   "squad": "coding",
+   "fixture": "gateway-go",
+   "cwd": "${LESSONS_FIXTURES}/gateway-go",
+   "kind": "lessons",
+   "prompt": "In internal/limiter/rate.go, make New return an empty bucket (0 tokens) instead of a full one. Then check the file with the language server's diagnostics (lsp_diagnostics). Work directly, do not delegate.",
+   "check": [
+    {
+     "file": "internal/limiter/rate.go",
+     "match": "/tokens:\\s*0\\b|tokens:\\s*0\\.0/"
+    },
+    {
+     "tool": "lsp_diagnostics"
+    }
+   ],
+   "error": "Hoped for: lsp_diagnostics with `file_path`. Observed: on 1/3 (run 1, hinted), off 0/2, probe 0/1; off 1 and off 2 instead failed a Read of an invented absolute path (/home/user/rep/internal/limiter/rate.go).",
+   "notes": "Observed on ba96fa5 / balanced (1 sample per run): The check also requires a successful lsp_diagnostics call."
+  },
+  {
+   "id": "read-missing-limiter",
+   "squad": "coding",
+   "fixture": "gateway-go",
+   "cwd": "${LESSONS_FIXTURES}/gateway-go",
+   "kind": "lessons",
+   "prompt": "Open limiter/rate.go and tell me what happens to the bucket's tokens when Allow is called after a long idle period. Work directly, do not delegate.",
+   "check": [
+    {
+     "answer": "/b\\.last|`last`|\\blast field|field `?last/"
+    },
+    {
+     "answer": "/burst/"
+    }
+   ],
+   "error": "Observed: an error in 5/5 sessions, but it is the prompt's wrong path, which no lesson can prevent; the failing tool was Bash (`find /home/user … 2>/dev/null`, silent exit 1) in on 1 and off 1, Read in the other three.",
+   "notes": "Prompt-induced wrong path (the file is internal/limiter/rate.go). The check requires a fact found only in the fixture file: the bucket's timestamp field is named `last` (b.last), plus the burst cap."
+  },
+  {
+   "id": "read-missing-svc",
+   "squad": "coding",
+   "fixture": "svc-go",
+   "cwd": "${LESSONS_FIXTURES}/svc-go",
+   "kind": "lessons",
+   "prompt": "Open cmd/server.go and tell me which configuration file Start loads. Work directly, do not delegate.",
+   "check": [
+    {
+     "answer": "/\\/etc\\/svc\\.yaml/"
+    }
+   ],
+   "error": "Observed: a Read error in 5/5 sessions (and 1/1 probe), caused by the prompt's wrong path (server.go is at the root); no lesson can prevent it.",
+   "notes": "Prompt-induced. Same Read signature as read-missing-limiter. The check needs /etc/svc.yaml, which is only in the fixture's server.go."
+  }
+ ]
+}

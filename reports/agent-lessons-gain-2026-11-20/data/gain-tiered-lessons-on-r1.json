@@ -1,0 +1,50 @@
+[
+ {
+  "id": "331bc0222faa",
+  "agent": "coder",
+  "tool": "Bash",
+  "signature": "331bc0222faa8e5419a77d9e11ed0beaa54b6e56987813eec9b08702d870ec28",
+  "state": "hint",
+  "created": "2026-11-21T00:18:28.888034077Z",
+  "last_seen": "2026-11-21T00:18:28.888034077Z",
+  "seen": "1",
+  "hinted": "0",
+  "recovered": "0",
+  "repeated": "0",
+  "seen_in_prompt": "0",
+  "sessions": "feasible-dolphin",
+  "_body": "Cue: acme release notes missing required flag\nText: Provide the --since-tag argument to the acme release notes command to avoid the error.\n\nFailed:\n```\nerror: E42\n```\n\nWorked:\n```\n{\"command\":\"./bin/acme release notes --since-tag none\"}\n```"
+ },
+ {
+  "id": "52947928504d",
+  "agent": "coder",
+  "tool": "Bash",
+  "signature": "52947928504dab24ff27b77cd129312e6857d0b76f978e12fb962f511727de36",
+  "state": "hint",
+  "created": "2026-11-21T00:18:15.400072158Z",
+  "last_seen": "2026-11-21T00:18:15.400072158Z",
+  "seen": "1",
+  "hinted": "0",
+  "recovered": "0",
+  "repeated": "0",
+  "seen_in_prompt": "0",
+  "sessions": "civil-bonefish",
+  "_body": "Cue: migrate.sh status fails with no database configured error\nText: Include the required database flag, such as --db, in the command.\n\nFailed:\n```\nerror: no database configured; pass --db sqlite:./dev.db\n```\n\nWorked:\n```\n{\"command\":\"./scripts/migrate.sh status --db sqlite:./dev.db\"}\n```"
+ },
+ {
+  "id": "b143ca2b733d",
+  "agent": "coder",
+  "tool": "Bash",
+  "signature": "b143ca2b733d4749e331f9512332cb8426aef8f9c7c0260b56e6e63947f854af",
+  "state": "hint",
+  "created": "2026-11-21T00:19:28.429170137Z",
+  "last_seen": "2026-11-21T00:19:28.429170137Z",
+  "seen": "1",
+  "hinted": "0",
+  "recovered": "0",
+  "repeated": "0",
+  "seen_in_prompt": "0",
+  "sessions": "integral-amoeba",
+  "_body": "Cue: migrate.sh failing due to missing database configuration\nText: Pass the --db flag with the appropriate database connection string (e.g., --db sqlite:./dev.db) to avoid the \"no database configured\" error.\n\nFailed:\n```\nerror: no database configured; pass --db sqlite:./dev.db\nexit=1\nMakefile\nREADME.md\nbin\ndocs\nlib\nscripts\ntests\n```\n\nWorked:\n```\n{\"command\":\"./scripts/migrate.sh status --db sqlite:./dev.db; . lib/strings.sh; lower \\\"HeLLo\\\"\"}\n```"
+ }
+]

@@ -1,0 +1,18 @@
+[
+ {
+  "id": "331bc0222faa",
+  "agent": "coder",
+  "tool": "Bash",
+  "signature": "331bc0222faa8e5419a77d9e11ed0beaa54b6e56987813eec9b08702d870ec28",
+  "state": "hint",
+  "created": "2026-11-21T00:18:30.399827989Z",
+  "last_seen": "2026-11-21T00:18:30.399827989Z",
+  "seen": "1",
+  "hinted": "0",
+  "recovered": "0",
+  "repeated": "0",
+  "seen_in_prompt": "0",
+  "sessions": "loyal-pipefish",
+  "_body": "Cue: acme release notes command failing with error E42\nText: Add the --since-tag argument to the release notes command to avoid the error.\n\nFailed:\n```\nerror: E42\n```\n\nWorked:\n```\n{\"command\":\"./bin/acme release notes --since-tag none\"}\n```"
+ }
+]

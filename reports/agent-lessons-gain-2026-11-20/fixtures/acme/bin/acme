@@ -1,0 +1,35 @@
+#!/bin/sh
+# acme project CLI
+cmd="$1"; [ $# -gt 0 ] && shift
+case "$cmd" in
+  build)
+    profile=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --profile) profile="$2"; shift 2 ;;
+        --profile=*) profile="${1#--profile=}"; shift ;;
+        --help|-h) echo "usage: acme build --profile <dev|prod>"; exit 0 ;;
+        *) echo "error: unknown argument $1" >&2; exit 2 ;;
+      esac
+    done
+    if [ -z "$profile" ]; then echo "error: --profile is required (dev|prod)" >&2; exit 2; fi
+    echo "build ok profile=$profile [artifact ACME-B41K]"
+    ;;
+  release)
+    sub="$1"; [ $# -gt 0 ] && shift
+    [ "$sub" = "notes" ] || { echo "usage: acme release notes [--since-tag <tag|none>]" >&2; exit 2; }
+    since=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --since-tag) since="$2"; shift 2 ;;
+        --since-tag=*) since="${1#--since-tag=}"; shift ;;
+        --help|-h) echo "usage: acme release notes [--since-tag <tag|none>]"; exit 0 ;;
+        *) echo "error: unknown argument $1" >&2; exit 2 ;;
+      esac
+    done
+    if [ -z "$since" ]; then echo "error: E42" >&2; exit 3; fi
+    echo "release notes ok since=$since [notes ACME-R58P]"
+    ;;
+  ""|--help|-h) echo "usage: acme <build|release> ..." ;;
+  *) echo "error: unknown command $cmd" >&2; exit 2 ;;
+esac
