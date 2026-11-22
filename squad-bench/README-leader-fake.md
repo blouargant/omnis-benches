@@ -72,8 +72,13 @@ the log cannot be read — the server died, or another run replaced the scenario
 
 ## Shipped scenarios (`tasks-leader-fake.json`, System leader)
 
+`lf-unprompted` asks about this host and names no sub-agent. The four others put
+the evidence on a host the prompt says only the investigator can reach
+(`batch-02`), so the leader can neither find nor refute it with its own tools.
+
 | id | The investigator returns | Passes when |
 |---|---|---|
+| `lf-unprompted` | never any evidence | the leader delegated at least once without being told to |
 | `lf-good` | a correct, cited finding | one call; the answer states it |
 | `lf-fanout` | one finding per question | two calls open at once; both findings |
 | `lf-empty` | never any evidence | 1 to 3 calls, none a near-repeat; the answer says so and states no cause |
@@ -83,14 +88,15 @@ the log cannot be read — the server died, or another run replaced the scenario
 
 - **Read the `lf-empty` answers by hand.** "States no cause" is judged by a
   list of regexes; it catches the common inventions, not all of them.
-- The leader can check the host itself (`ls /var/log/…`) and find the scripted
-  evidence is not there. Break results down by the record's `leader_tools`.
 - `lf-reword` also passes when the leader sends two different requests at once;
   check in `fake.requests` that the second came after the first reply.
 - A time limit on the arm (`OMNIS_TURN_MAX_SECONDS`) appends a note to every
   sub-agent request and breaks the repeat counts; `setup-ab.sh` sets none.
-- The shipped scenarios cite files that do not exist on the host, and a careful
-  leader checks and disowns the finding: see `reports/leader-fake-2026-11.md`.
+- Keep scripted evidence out of the leader's reach: when it cited files absent
+  from the bench host, a careful leader checked and disowned it (first run in
+  `reports/leader-fake-2026-11.md`).
+- Only `lf-unprompted` measures delegation by default; the other prompts name
+  the investigator.
 - omnis retries an HTTP 5xx, so a `status` rule is logged once per attempt.
 - The leader keeps its own tools (`Bash`, `Read`…) and the arm runs with
   `bypassPermissions`: keep prompts read-only.

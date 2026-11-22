@@ -948,7 +948,8 @@ class TestLeaderFakeTasks(unittest.TestCase):
 
     def test_tasks_file_is_valid(self):
         import re
-        self.assertEqual(list(self.tasks), ["lf-good", "lf-fanout", "lf-empty", "lf-reword"])
+        self.assertEqual(list(self.tasks),
+                         ["lf-unprompted", "lf-good", "lf-fanout", "lf-empty", "lf-reword"])
         for t in self.tasks.values():
             self.assertEqual((t["squad"], t["cwd"]), ("system", "sandbox"), t["id"])
             self.assertTrue(t["prompt"].endswith("Read-only: change nothing."), t["id"])
@@ -962,6 +963,23 @@ class TestLeaderFakeTasks(unittest.TestCase):
             for p in patterns:
                 if p.startswith("/") and p.endswith("/") and len(p) > 1:
                     re.compile(p[1:-1])
+
+    def test_evidence_is_out_of_the_leaders_reach(self):
+        # The evidence sits on a host the leader cannot reach: it can neither find
+        # nor refute it with its own tools, only through the investigator.
+        for tid in ("lf-good", "lf-fanout", "lf-empty", "lf-reword"):
+            t = self.tasks[tid]
+            self.assertIn("batch-02", t["prompt"], tid)
+            self.assertIn("investigator", t["prompt"], tid)
+            self.assertIn("cannot reach", t["prompt"], tid)
+            for rule in t["fake"]["investigator"]:
+                self.assertIn("batch-02", rule["reply"], tid)
+
+    def test_unprompted_scenario_names_no_sub_agent(self):
+        t = self.tasks["lf-unprompted"]
+        self.assertNotIn("investigator", t["prompt"])
+        self.assertNotIn("batch-02", t["prompt"])
+        self.assertEqual(t["expect_fake"], {"agents": {"investigator": {"min_calls": 1}}})
 
     def test_scripted_findings_satisfy_their_own_facts(self):
         # An answer that repeats the scripted finding passes the task's facts.
@@ -1024,6 +1042,17 @@ class TestFakeReviewFixes(unittest.TestCase):
         g = self.gate("lf-reword", "The host is healthy: 41% disk used, plenty of headroom.")
         self.assertFalse(g["quality_gate"])
         self.assertTrue(self.gate("lf-reword", "It was OOM-killed at 03:02.")["quality_gate"])
+
+    # second live run: two wordings the regexes missed
+    def test_reword_fact_accepts_a_hyphenated_out_of_memory(self):
+        g = self.gate("lf-reword", "It was killed by the kernel's Out-of-Memory killer at 03:02:11.")
+        self.assertTrue(g["quality_gate"])
+
+    def test_a_search_that_timed_out_is_not_an_invented_cause(self):
+        a = "No logs found. A full-filesystem search for the job's files timed out, so I can't rule it out."
+        self.assertEqual(self.gate("lf-empty", a)["forbidden_hits"], [])
+        self.assertEqual(self.gate("lf-empty", "No logs, but the job timed out.")["forbidden_hits"],
+                         ["invented-cause"])
 
     # 2 — honest phrasings count, a cause that contains "could not" does not
     def test_empty_accepts_honest_phrasings(self):

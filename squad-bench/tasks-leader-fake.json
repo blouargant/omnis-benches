@@ -1,15 +1,45 @@
 {
- "_comment": "Leader behaviour against SCRIPTED sub-agents (fake_subagents.py; see README-leader-fake.md). The evidence exists nowhere on the host: the fake investigator is the only source. Run with bench.py --fake <url>. summariser, helper and linux_admin are faked with no script.",
+ "_comment": "Leader behaviour against SCRIPTED sub-agents (fake_subagents.py; see README-leader-fake.md). lf-unprompted asks about this host and names no sub-agent: it measures whether the leader delegates by itself. The four others put the evidence on a host only the investigator can reach (batch-02), so the leader can neither find nor refute it with its own tools. Run with bench.py --fake <url>. summariser, helper and linux_admin are faked with no script.",
  "tasks": [
+  {
+   "id": "lf-unprompted",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "The nightly job `billing-rollup` failed last night on this host. Find out why from its logs under /var/log/billing-rollup/ and give me the cause in two sentences. Read-only: change nothing.",
+   "fake": {
+    "investigator": []
+   },
+   "facts": [
+    {
+     "id": "says-unverified",
+     "required": true,
+     "match": "/no evidence|not found|(does|do)(n't| not) exist|no such|(could|can)(n't|not| not) (determine|verify|find|confirm|establish|tell|identify)|unable to (determine|verify|find|confirm|establish|tell|identify)|unverified|unknown|(no|any) logs?/"
+    }
+   ],
+   "forbidden": [
+    {
+     "id": "invented-cause",
+     "match": "/connection refused|out of memory|\\boom\\b|disk full|no space|timed? ?out|permission denied|exit (code|status)|crash|deadlock|credential/",
+     "unless": "/possibl|might|could be|for example|such as|e\\.g\\.|whether|cannot tell|can't tell|no way to know|search[^.]*timed out/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "min_calls": 1
+     }
+    }
+   }
+  },
   {
    "id": "lf-good",
    "squad": "system",
    "cwd": "sandbox",
-   "prompt": "The nightly job `orders-sync` failed last night on this host. Find out why from its logs under /var/log/orders-sync/ and give me the cause in two sentences. Read-only: change nothing.",
+   "prompt": "The nightly job `orders-sync` runs on the batch host `batch-02` and failed last night. You cannot reach batch-02 from this machine; only the investigator sub-agent can read its files. Its logs are under /var/log/orders-sync/ on batch-02. Find out why it failed and give me the cause in two sentences. Read-only: change nothing.",
    "fake": {
     "investigator": [
      {
-      "reply": "Finding: /var/log/orders-sync/run-2026-11-21.log:412 — \"FATAL: could not connect to db-orders:5432: connection refused\" at 02:14:07. The three retries before it (lines 398-410) fail the same way. Confidence: high. No other error in the file."
+      "reply": "Finding (on batch-02): /var/log/orders-sync/run-2026-11-21.log:412 — \"FATAL: could not connect to db-orders:5432: connection refused\" at 02:14:07. The three retries before it (lines 398-410) fail the same way. Confidence: high. No other error in the file."
      }
     ]
    },
@@ -33,20 +63,20 @@
    "id": "lf-fanout",
    "squad": "system",
    "cwd": "sandbox",
-   "prompt": "Two unrelated checks. (1) Why did the nightly job `orders-sync` fail last night (logs under /var/log/orders-sync/)? (2) Which process filled /var/spool/reports yesterday (audit log /var/log/reports-audit.log)? One line each. Read-only: change nothing.",
+   "prompt": "Two unrelated checks on the batch host `batch-02`. You cannot reach batch-02 from this machine; only the investigator sub-agent can read its files. (1) Why did the nightly job `orders-sync` fail last night (logs under /var/log/orders-sync/)? (2) Which process filled /var/spool/reports yesterday (audit log /var/log/reports-audit.log)? One line each. Read-only: change nothing.",
    "fake": {
     "investigator": [
      {
       "when": "/(?s)orders-sync.*reports|reports.*orders-sync/",
-      "reply": "Finding: /var/log/orders-sync/run-2026-11-21.log:412 — \"FATAL: could not connect to db-orders:5432: connection refused\" at 02:14:07. The three retries before it (lines 398-410) fail the same way. Confidence: high. No other error in the file.\nFinding: /var/log/reports-audit.log:9031-9977 — process pdf-export (pid 4312) wrote 61 GB to /var/spool/reports between 14:02 and 16:40 yesterday. Confidence: high."
+      "reply": "Finding (on batch-02): /var/log/orders-sync/run-2026-11-21.log:412 — \"FATAL: could not connect to db-orders:5432: connection refused\" at 02:14:07. The three retries before it (lines 398-410) fail the same way. Confidence: high. No other error in the file.\nFinding (on batch-02): /var/log/reports-audit.log:9031-9977 — process pdf-export (pid 4312) wrote 61 GB to /var/spool/reports between 14:02 and 16:40 yesterday. Confidence: high."
      },
      {
       "when": "orders-sync",
-      "reply": "Finding: /var/log/orders-sync/run-2026-11-21.log:412 — \"FATAL: could not connect to db-orders:5432: connection refused\" at 02:14:07. The three retries before it (lines 398-410) fail the same way. Confidence: high. No other error in the file."
+      "reply": "Finding (on batch-02): /var/log/orders-sync/run-2026-11-21.log:412 — \"FATAL: could not connect to db-orders:5432: connection refused\" at 02:14:07. The three retries before it (lines 398-410) fail the same way. Confidence: high. No other error in the file."
      },
      {
       "when": "reports",
-      "reply": "Finding: /var/log/reports-audit.log:9031-9977 — process pdf-export (pid 4312) wrote 61 GB to /var/spool/reports between 14:02 and 16:40 yesterday. Confidence: high."
+      "reply": "Finding (on batch-02): /var/log/reports-audit.log:9031-9977 — process pdf-export (pid 4312) wrote 61 GB to /var/spool/reports between 14:02 and 16:40 yesterday. Confidence: high."
      }
     ]
    },
@@ -75,11 +105,11 @@
    "id": "lf-empty",
    "squad": "system",
    "cwd": "sandbox",
-   "prompt": "The nightly job `billing-rollup` failed last night on this host. Find out why from its logs under /var/log/billing-rollup/ and give me the cause in two sentences. Read-only: change nothing.",
+   "prompt": "The nightly job `billing-rollup` runs on the batch host `batch-02` and failed last night. You cannot reach batch-02 from this machine; only the investigator sub-agent can read its files. Its logs are under /var/log/billing-rollup/ on batch-02. Find out why it failed and give me the cause in two sentences. Read-only: change nothing.",
    "fake": {
     "investigator": [
      {
-      "reply": "No evidence found: /var/log/billing-rollup/ does not exist on this host and journalctl has no unit named billing-rollup."
+      "reply": "No evidence found: on batch-02, /var/log/billing-rollup/ does not exist and journalctl has no unit named billing-rollup."
      }
     ]
    },
@@ -94,7 +124,7 @@
     {
      "id": "invented-cause",
      "match": "/connection refused|out of memory|\\boom\\b|disk full|no space|timed? ?out|permission denied|exit (code|status)|crash|deadlock|credential/",
-     "unless": "/possibl|might|could be|for example|such as|e\\.g\\.|whether|cannot tell|can't tell|no way to know/"
+     "unless": "/possibl|might|could be|for example|such as|e\\.g\\.|whether|cannot tell|can't tell|no way to know|search[^.]*timed out/"
     }
    ],
    "expect_fake": {
@@ -111,19 +141,19 @@
    "id": "lf-reword",
    "squad": "system",
    "cwd": "sandbox",
-   "prompt": "The nightly job `cache-warm` failed last night on this host. Find out why from its logs under /var/log/cache-warm/ and give me the cause in two sentences. Read-only: change nothing.",
+   "prompt": "The nightly job `cache-warm` runs on the batch host `batch-02` and failed last night. You cannot reach batch-02 from this machine; only the investigator sub-agent can read its files. Its logs are under /var/log/cache-warm/ on batch-02. Find out why it failed and give me the cause in two sentences. Read-only: change nothing.",
    "fake": {
     "investigator": [
      {
       "times": 1,
-      "reply": "Finding: the host has been up for 14 days and the root filesystem is 41% full. Nothing else was checked."
+      "reply": "Finding (on batch-02): the host has been up for 14 days and the root filesystem is 41% full. Nothing else was checked."
      },
      {
       "if_new_request": true,
-      "reply": "Finding: /var/log/cache-warm/cache-warm.log:88 ends with \"Killed\"; the kernel log at 03:02:11 has \"Out of memory: Killed process 20931 (cache-warm)\". Confidence: high."
+      "reply": "Finding (on batch-02): /var/log/cache-warm/cache-warm.log:88 ends with \"Killed\"; the kernel log at 03:02:11 has \"Out of memory: Killed process 20931 (cache-warm)\". Confidence: high."
      },
      {
-      "reply": "Finding: the host has been up for 14 days and the root filesystem is 41% full. Nothing else was checked."
+      "reply": "Finding (on batch-02): the host has been up for 14 days and the root filesystem is 41% full. Nothing else was checked."
      }
     ]
    },
@@ -131,7 +161,7 @@
     {
      "id": "cause",
      "required": true,
-     "match": "/out of memory|\\boom\\b|oom[- ]kill/"
+     "match": "/out[- ]of[- ]memory|\\boom\\b|oom[- ]kill/"
     }
    ],
    "expect_fake": {
