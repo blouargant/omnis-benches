@@ -65,7 +65,7 @@ Known and accepted, not tested: omnis retries an HTTP 5xx, so a `status` rule is
   `{"reply": str | None, "status": int | None, "delay_ms": int, "rule": int | None}` and recording the request in the agent's history. Thread-safe (one lock).
   Rule selection: first rule, in order, that is usable — `when` absent or `scoring.match_rule(when, request)`; uses so far `< times` when `times` is set; and, with `if_new_request`, `normalise(request)` differs from every earlier request of that agent. No usable rule → `DEFAULT_REPLY`, `rule: None`, `delay_ms: 300`.
 
-- [ ] **Step 1: Write the failing tests** (`class TestEngine`)
+- [x] **Step 1: Write the failing tests** (`class TestEngine`)
 
 ```python
 RULES = {"investigator": [
@@ -111,10 +111,10 @@ def test_validate_script(self):
     self.assertIsNotNone(fs.validate_script({"a": [{"delay_ms": 1}]}))
 ```
 
-- [ ] **Step 2: Run** `python3 -m unittest squad-bench/test_fake_subagents.py` — expect an import error.
-- [ ] **Step 3: Implement** the functions and `Scenario` above (import `scoring` for `match_rule`).
-- [ ] **Step 4: Run** the same command — expect all tests to pass.
-- [ ] **Step 5: Commit** `feat(squad-bench): script engine for fake sub-agents`.
+- [x] **Step 2: Run** `python3 -m unittest squad-bench/test_fake_subagents.py` — expect an import error.
+- [x] **Step 3: Implement** the functions and `Scenario` above (import `scoring` for `match_rule`).
+- [x] **Step 4: Run** the same command — expect all tests to pass.
+- [x] **Step 5: Commit** `feat(squad-bench): script engine for fake sub-agents`.
 
 ---
 
@@ -132,7 +132,7 @@ def test_validate_script(self):
   - `GET /v1/models` → `{"data": []}`.
   - `POST /v1/chat/completions` (any path ending in `/chat/completions`): sleeps `delay_ms`, then answers with the reply as assistant text, `finish_reason: "stop"`, usage `{prompt_tokens: 1, completion_tokens: 1, total_tokens: 2}`; streaming when `stream` is true, in the same chunk shape as `prompt-size/fake_server.py`. A `status` rule answers that HTTP status with `{"error": {"message": "scripted failure"}}`. With no scenario set, behaves as an empty script.
 
-- [ ] **Step 1: Write the failing tests** (`class TestServer`, server on port 0 in a thread, `urllib` client)
+- [x] **Step 1: Write the failing tests** (`class TestServer`, server on port 0 in a thread, `urllib` client)
 
 ```python
 def test_chat_reply_and_log(self):
@@ -155,10 +155,10 @@ def test_overlapping_calls_overlap_in_the_log(self):
     # 2 threads, delay_ms 200 -> calls[0].ended_ms > calls[1].started_ms
 ```
 
-- [ ] **Step 2: Run** — expect failures (`serve` undefined).
-- [ ] **Step 3: Implement** `serve`, the handler and `main`.
-- [ ] **Step 4: Run** `python3 -m unittest squad-bench/test_fake_subagents.py` — all pass.
-- [ ] **Step 5: Commit** `feat(squad-bench): fake sub-agent model server`.
+- [x] **Step 2: Run** — expect failures (`serve` undefined).
+- [x] **Step 3: Implement** `serve`, the handler and `main`.
+- [x] **Step 4: Run** `python3 -m unittest squad-bench/test_fake_subagents.py` — all pass.
+- [x] **Step 5: Commit** `feat(squad-bench): fake sub-agent model server`.
 
 ---
 
@@ -173,7 +173,7 @@ def test_overlapping_calls_overlap_in_the_log(self):
   Distinct is counted on whitespace- and case-normalised text; `repeats = calls - distinct`; `max_parallel` is the largest number of `[started_ms, ended_ms)` intervals open at once, all agents together; `request` cut at 500 chars. Empty list → all empty, `max_parallel` 0.
 - `check_fake(expect: dict | None, summary: dict) -> dict` returning `{"fake_gate": bool | None, "fake_failed": [str]}`. `expect` shape: `{"agents": {agent: {"min_calls", "max_calls", "min_distinct", "max_repeats"}}, "min_parallel": int}`, every key optional. A missing agent counts as 0. Failed ids: `"<agent>.<key>"` and `"min_parallel"`. `expect` falsy → `fake_gate: None`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 CALLS = [
@@ -204,10 +204,10 @@ def test_empty_log(self):
     self.assertEqual(scoring.fake_summary([])["max_parallel"], 0)
 ```
 
-- [ ] **Step 2: Run** `python3 -m unittest squad-bench/test_bench.py -k FakeScoring` — fail.
-- [ ] **Step 3: Implement** both functions in `scoring.py` (pure, no I/O).
-- [ ] **Step 4: Run** — pass.
-- [ ] **Step 5: Commit** `feat(squad-bench): score fake sub-agent call logs`.
+- [x] **Step 2: Run** `python3 -m unittest squad-bench/test_bench.py -k FakeScoring` — fail.
+- [x] **Step 3: Implement** both functions in `scoring.py` (pure, no I/O).
+- [x] **Step 4: Run** — pass.
+- [x] **Step 5: Commit** `feat(squad-bench): score fake sub-agent call logs`.
 
 ---
 
@@ -225,11 +225,11 @@ def test_empty_log(self):
   - with both `leader` and `leader_model`: `registry/agents/<leader>/agent.json`: `{"model_ref": "<leader_model>"}`.
 - `SystemExit` naming the agent when a faked agent or the leader has no `registry/agents/<name>/` under `sys_dir`, when the leader is also in `fake`, or when only one of `leader` / `leader_model` is given.
 
-- [ ] **Step 1: Write the failing tests** — follow `test_shape_overlay.py` (temp dir with `registry/agents/{leader,investigator,summariser}/agent.json`). Assert the three file contents above for `fake=["investigator", "summariser"], port=18770, leader="leader", leader_model="balanced"`; assert no leader file without `leader`; assert `SystemExit` for `fake=["nope"]`, for `fake=["leader"], leader="leader"`, and for `leader` without `leader_model`.
-- [ ] **Step 2: Run** `python3 -m unittest squad-bench/test_fake_overlay.py` — fail.
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** — pass.
-- [ ] **Step 5: Commit** `feat(squad-bench): config overlay for fake sub-agents`.
+- [x] **Step 1: Write the failing tests** — follow `test_shape_overlay.py` (temp dir with `registry/agents/{leader,investigator,summariser}/agent.json`). Assert the three file contents above for `fake=["investigator", "summariser"], port=18770, leader="leader", leader_model="balanced"`; assert no leader file without `leader`; assert `SystemExit` for `fake=["nope"]`, for `fake=["leader"], leader="leader"`, and for `leader` without `leader_model`.
+- [x] **Step 2: Run** `python3 -m unittest squad-bench/test_fake_overlay.py` — fail.
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run** — pass.
+- [x] **Step 5: Commit** `feat(squad-bench): config overlay for fake sub-agents`.
 
 ---
 
@@ -248,7 +248,7 @@ def test_empty_log(self):
   - In `run_task`: `fake_begin` before the session is created when `FAKE_URL` and the task has `fake`; after the turns, `m["fake"] = scoring.fake_summary(fake_end(FAKE_URL))` and `m.update(scoring.check_fake(task.get("expect_fake"), m["fake"]))`. Tasks without `fake` get neither key.
   - `summarize` prints one line when `m.get("fake")`: `fake: calls=<dict> repeats=<dict> max_parallel=<n> gate=<PASS|FAIL|n/a> failed=<list or ->`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_begin_and_end_round_trip(self):
@@ -271,10 +271,10 @@ def test_fake_task_without_the_flag_exits(self):
     # api() mocked to fail if called -> SystemExit mentioning "--fake"
 ```
 
-- [ ] **Step 2: Run** `python3 -m unittest squad-bench/test_bench.py -k FakeBench` — fail.
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** `python3 -m unittest discover -s squad-bench` — everything passes.
-- [ ] **Step 5: Commit** `feat(squad-bench): --fake drives scripted sub-agents`.
+- [x] **Step 2: Run** `python3 -m unittest squad-bench/test_bench.py -k FakeBench` — fail.
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run** `python3 -m unittest discover -s squad-bench` — everything passes.
+- [x] **Step 5: Commit** `feat(squad-bench): --fake drives scripted sub-agents`.
 
 ---
 
@@ -284,7 +284,7 @@ def test_fake_task_without_the_flag_exits(self):
 - Create: `squad-bench/tasks-leader-fake.json`, `squad-bench/README-leader-fake.md`
 - Modify: `squad-bench/test_bench.py` (add `class TestLeaderFakeTasks`), `squad-bench/README.md` (one line linking the new README), `CLAUDE.md` (one line under the squad-bench section)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 def test_tasks_file_is_valid(self):
@@ -300,8 +300,8 @@ def test_tasks_file_is_valid(self):
 
 Add two behaviour tests that replay each script through `Scenario`: for `lf-reword`, an identical second request never yields the good finding and a reworded one does; for `lf-fanout`, a request naming only `orders-sync` gets finding A, only `reports` gets finding B.
 
-- [ ] **Step 2: Run** — fail (no file).
-- [ ] **Step 3: Write `tasks-leader-fake.json`** with exactly this content (every prompt ends with `Read-only: change nothing.`):
+- [x] **Step 2: Run** — fail (no file).
+- [x] **Step 3: Write `tasks-leader-fake.json`** with exactly this content (every prompt ends with `Read-only: change nothing.`):
 
 | id | prompt | `fake.investigator` | `facts` (required) | `forbidden` | `expect_fake` |
 |---|---|---|---|---|---|
@@ -320,9 +320,9 @@ Replies:
 
 The other System members (`summariser`, `helper`, `linux_admin`) are faked with no script, so they answer `No evidence found.`
 
-- [ ] **Step 4: Write `README-leader-fake.md`**: what it measures (two sentences), the commands of Task 7 steps 2-4, the script rule fields, the `expect_fake` keys, and the known limit on `status` rules. Add the link line to `README.md` and one line to `CLAUDE.md`.
-- [ ] **Step 5: Run** `python3 -m unittest discover -s squad-bench` — pass.
-- [ ] **Step 6: Commit** `feat(squad-bench): leader-vs-fake-investigator scenarios`.
+- [x] **Step 4: Write `README-leader-fake.md`**: what it measures (two sentences), the commands of Task 7 steps 2-4, the script rule fields, the `expect_fake` keys, and the known limit on `status` rules. Add the link line to `README.md` and one line to `CLAUDE.md`.
+- [x] **Step 5: Run** `python3 -m unittest discover -s squad-bench` — pass.
+- [x] **Step 6: Commit** `feat(squad-bench): leader-vs-fake-investigator scenarios`.
 
 ---
 
@@ -334,7 +334,7 @@ Needs the gateway credentials (`OPENAI_BASE_URL`, `OPENAI_API_KEY`) and an omnis
 - Create: `reports/leader-fake-2026-11.jsonl`, `reports/leader-fake-2026-11.md`
 - Possibly modify: `squad-bench/fake_subagents.py` (`request_text`) and its test, if step 2 shows the extraction is wrong.
 
-- [ ] **Step 1: Start the fake server and build the overlays**
+- [x] **Step 1: Start the fake server and build the overlays**
 
 ```bash
 W=$(mktemp -d); python3 squad-bench/fake_subagents.py 18770 & echo $! > $W/fake.pid
@@ -345,7 +345,7 @@ python3 squad-bench/fake_overlay.py --sys ../omnis --fake $F --port 18770 --lead
 
 `--sys` needs `registry/` next to `agents.json`: if `../omnis/config` has none, pass a temp dir holding a copy of `../omnis/config/*` plus `../omnis/registry`.
 
-- [ ] **Step 2: Probe** — start one arm and run `lf-good` once:
+- [x] **Step 2: Probe** — start one arm and run `lf-good` once:
 
 ```bash
 MODEL=tiered OVERLAY=$W/ov-balanced squad-bench/setup-ab.sh $W balanced develop 18802
@@ -356,7 +356,7 @@ curl -s http://127.0.0.1:18770/calls
 
 Expected: the record has `delegations.investigator >= 1`, `models.investigator` at price 0, and `/calls` shows a `request` that is the leader's own wording and nothing else. If the request carries extra text (a wrapper, a system note) or a resumed call shows the wrong message, fix `request_text` and its test, then re-run. If `investigator` still runs on a real model, the overlay did not apply: check `$W/balanced/server.log` and the merged `models.json` before going on.
 
-- [ ] **Step 3: Full run** — both arms, one after the other (the fake server holds one scenario at a time):
+- [x] **Step 3: Full run** — both arms, one after the other (the fake server holds one scenario at a time):
 
 ```bash
 for arm in "premium 18801" "balanced 18802"; do set -- $arm
@@ -370,5 +370,5 @@ done; kill $(cat $W/fake.pid)
 
 Tag each record's arm: add `--out` per arm (`…-premium.jsonl`, `…-balanced.jsonl`) if the records do not already tell the leader's model apart through `models.leader`.
 
-- [ ] **Step 4: Write `reports/leader-fake-2026-11.md`**: per scenario and leader model, pass count out of 3 for `quality_gate` and `fake_gate`, calls / repeats / max_parallel, leader cost; then one paragraph answering which rule the leader follows on `lf-empty` and `lf-reword` (re-task with new wording, or stop after two), quoting the logged requests; then what the bench cannot tell.
-- [ ] **Step 5: Commit** `reports: leader vs fake investigator, first run`.
+- [x] **Step 4: Write `reports/leader-fake-2026-11.md`**: per scenario and leader model, pass count out of 3 for `quality_gate` and `fake_gate`, calls / repeats / max_parallel, leader cost; then one paragraph answering which rule the leader follows on `lf-empty` and `lf-reword` (re-task with new wording, or stop after two), quoting the logged requests; then what the bench cannot tell.
+- [x] **Step 5: Commit** `reports: leader vs fake investigator, first run`.

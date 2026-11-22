@@ -89,7 +89,8 @@ the log cannot be read — the server died, or another run replaced the scenario
   check in `fake.requests` that the second came after the first reply.
 - A time limit on the arm (`OMNIS_TURN_MAX_SECONDS`) appends a note to every
   sub-agent request and breaks the repeat counts; `setup-ab.sh` sets none.
-
+- The shipped scenarios cite files that do not exist on the host, and a careful
+  leader checks and disowns the finding: see `reports/leader-fake-2026-11.md`.
 - omnis retries an HTTP 5xx, so a `status` rule is logged once per attempt.
 - The leader keeps its own tools (`Bash`, `Read`…) and the arm runs with
   `bypassPermissions`: keep prompts read-only.
