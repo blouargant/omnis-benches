@@ -339,8 +339,8 @@ Needs the gateway credentials (`OPENAI_BASE_URL`, `OPENAI_API_KEY`) and an omnis
 ```bash
 W=$(mktemp -d); python3 squad-bench/fake_subagents.py 18770 & echo $! > $W/fake.pid
 F=investigator,summariser,helper,linux_admin
-python3 squad-bench/fake_overlay.py --sys ../omnis/config --fake $F --port 18770 --out $W/ov-premium
-python3 squad-bench/fake_overlay.py --sys ../omnis/config --fake $F --port 18770 --leader leader --leader-model balanced --out $W/ov-balanced
+python3 squad-bench/fake_overlay.py --sys ../omnis --fake $F --port 18770 --out $W/ov-premium
+python3 squad-bench/fake_overlay.py --sys ../omnis --fake $F --port 18770 --leader leader --leader-model balanced --out $W/ov-balanced
 ```
 
 `--sys` needs `registry/` next to `agents.json`: if `../omnis/config` has none, pass a temp dir holding a copy of `../omnis/config/*` plus `../omnis/registry`.

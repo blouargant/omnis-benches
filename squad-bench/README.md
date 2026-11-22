@@ -25,6 +25,9 @@ can track over time:
 
 Rather than eyeball these once, `bench.py` measures them every run.
 
+To measure a leader alone, with its sub-agents replaced by a script, see
+[`README-leader-fake.md`](README-leader-fake.md).
+
 ## Run it
 
 ```bash

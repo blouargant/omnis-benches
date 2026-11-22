@@ -933,6 +933,74 @@ class TestFakeBench(unittest.TestCase):
         self.assertEqual((m["fake_gate"], m["fake_failed"]), (False, ["investigator.min_calls"]))
 
 
+class TestLeaderFakeTasks(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import fake_subagents
+        cls.fs = fake_subagents
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tasks-leader-fake.json")
+        with open(path) as f:
+            cls.tasks = {t["id"]: t for t in json.load(f)["tasks"]}
+
+    def ask(self, task_id, *requests):
+        s = self.fs.Scenario(task_id, self.tasks[task_id]["fake"])
+        return [s.answer("investigator", r)["reply"] for r in requests]
+
+    def test_tasks_file_is_valid(self):
+        import re
+        self.assertEqual(list(self.tasks), ["lf-good", "lf-fanout", "lf-empty", "lf-reword"])
+        for t in self.tasks.values():
+            self.assertEqual((t["squad"], t["cwd"]), ("system", "sandbox"), t["id"])
+            self.assertTrue(t["prompt"].endswith("Read-only: change nothing."), t["id"])
+            self.assertIsNone(self.fs.validate_script(t["fake"]), t["id"])
+            self.assertTrue(t["expect_fake"], t["id"])
+            self.assertTrue(any(f.get("required") for f in t["facts"]), t["id"])
+            patterns = [f["match"] for f in t["facts"]]
+            for f in t.get("forbidden", []):
+                patterns += [f["match"], f.get("unless", "")]
+            patterns += [r["when"] for rules in t["fake"].values() for r in rules if r.get("when")]
+            for p in patterns:
+                if p.startswith("/") and p.endswith("/") and len(p) > 1:
+                    re.compile(p[1:-1])
+
+    def test_scripted_findings_satisfy_their_own_facts(self):
+        # An answer that repeats the scripted finding passes the task's facts.
+        for tid, request in (("lf-good", "why did orders-sync fail"),
+                             ("lf-fanout", "orders-sync failure and who filled /var/spool/reports"),
+                             ("lf-reword", None)):
+            if request is None:
+                reply = self.ask(tid, "why", "look at the kernel log")[1]
+            else:
+                reply = self.ask(tid, request)[0]
+            self.assertTrue(scoring.quality_gate(self.tasks[tid], [reply])["quality_gate"], tid)
+
+    def test_fanout_gives_each_question_its_own_finding(self):
+        a, b = self.ask("lf-fanout", "Why did the nightly job orders-sync fail?",
+                        "Which process filled /var/spool/reports yesterday?")
+        self.assertIn("db-orders", a)
+        self.assertNotIn("pdf-export", a)
+        self.assertIn("pdf-export", b)
+        self.assertNotIn("db-orders", b)
+
+    def test_reword_needs_a_new_request(self):
+        same = self.ask("lf-reword", "why did cache-warm fail", "why did cache-warm fail",
+                        "Why did  cache-warm FAIL")
+        self.assertFalse(any("Out of memory" in r for r in same))
+        new = self.ask("lf-reword", "why did cache-warm fail", "read the kernel log around 03:00")
+        self.assertIn("Out of memory", new[1])
+
+    def test_empty_never_yields_a_cause(self):
+        for reply in self.ask("lf-empty", "why did billing-rollup fail", "check journalctl", "anything"):
+            self.assertTrue(reply.startswith("No evidence found"))
+        # The scripted reply alone, repeated by the leader, is an honest answer.
+        gate = scoring.quality_gate(self.tasks["lf-empty"], [self.ask("lf-empty", "x")[0]])
+        self.assertTrue(gate["quality_gate"])
+        # An invented cause is caught.
+        bad = scoring.quality_gate(self.tasks["lf-empty"],
+                                   ["No evidence found, but the job failed on a connection refused error."])
+        self.assertEqual(bad["forbidden_hits"], ["invented-cause"])
+
+
 FAKE_CALLS = [
     {"agent": "investigator", "n": 1, "request": "Why did it fail", "rule": 0, "started_ms": 0, "ended_ms": 300},
     {"agent": "investigator", "n": 2, "request": "why  did it fail", "rule": 0, "started_ms": 100, "ended_ms": 400},
