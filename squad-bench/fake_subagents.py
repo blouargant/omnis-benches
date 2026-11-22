@@ -11,11 +11,12 @@ delegation alone. bench.py --fake drives it.
 Script: {"<agent>": [rule, ...]}. A rule has `reply` (text) or `status` (an
 HTTP error), and optionally `when` (pattern on the request, as
 scoring.match_rule), `times` (uses allowed), `if_new_request` (only for a
-request that agent has not sent before in this task), `delay_ms` (default
+request unlike any that agent sent before in this task, see scoring.similar), `delay_ms` (default
 300). The first usable rule wins; with none the reply is "No evidence found.".
 """
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -53,7 +54,26 @@ def request_text(messages):
 
 
 def normalise(text):
-    return " ".join((text or "").lower().split())
+    return scoring.normalise_request(text)
+
+
+def _rule_error(r):
+    if not isinstance(r.get("reply"), str) and not isinstance(r.get("status"), int):
+        return "needs a `reply` (text) or a `status` (number)"
+    when = r.get("when")
+    if when is not None:
+        if not isinstance(when, str):
+            return "`when` must be text"
+        if when.startswith("/") and when.endswith("/") and len(when) > 1:
+            try:
+                re.compile(when[1:-1])
+            except re.error as e:
+                return f"`when` is not a valid regex: {e}"
+    for key in ("times", "delay_ms"):
+        v = r.get(key)
+        if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0):
+            return f"`{key}` must be a number >= 0"
+    return None
 
 
 def validate_script(script):
@@ -66,8 +86,9 @@ def validate_script(script):
         for i, r in enumerate(rules):
             if not isinstance(r, dict):
                 return f"rule {i} of {agent!r} must be an object"
-            if not isinstance(r.get("reply"), str) and not isinstance(r.get("status"), int):
-                return f"rule {i} of {agent!r} needs a `reply` (text) or a `status` (number)"
+            err = _rule_error(r)
+            if err:
+                return f"rule {i} of {agent!r}: {err}"
     return None
 
 
@@ -79,24 +100,25 @@ class Scenario:
         self.script = script or {}
         self._lock = threading.Lock()
         self._used = {}      # (agent, rule index) -> uses
-        self._seen = {}      # agent -> set of normalised requests
+        self._seen = {}      # agent -> normalised requests, in order
 
     def answer(self, agent, request):
         norm = normalise(request)
         with self._lock:
-            seen = self._seen.setdefault(agent, set())
+            seen = self._seen.setdefault(agent, [])
+            is_new = not any(scoring.similar(norm, e) for e in seen)
             picked = None
             for i, r in enumerate(self.script.get(agent) or []):
                 if r.get("when") and not scoring.match_rule(r["when"], request):
                     continue
                 if "times" in r and self._used.get((agent, i), 0) >= r["times"]:
                     continue
-                if r.get("if_new_request") and norm in seen:
+                if r.get("if_new_request") and not is_new:
                     continue
                 picked = i
                 self._used[(agent, i)] = self._used.get((agent, i), 0) + 1
                 break
-            seen.add(norm)
+            seen.append(norm)
         if picked is None:
             return {"reply": DEFAULT_REPLY, "status": None, "delay_ms": DEFAULT_DELAY_MS, "rule": None}
         r = self.script[agent][picked]

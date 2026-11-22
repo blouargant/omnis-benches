@@ -12,6 +12,7 @@ A task declares:
 `match` and `unless` use bench.py's existing convention: `/regex/` (case
 insensitive) or a plain case-insensitive substring.
 """
+import difflib
 import re
 
 
@@ -101,7 +102,20 @@ def quality_gate(task, answers):
 
 # ----------------------------------------------------------------------------- fake sub-agents
 FAKE_REQUEST_CHARS = 500
-_FAKE_AGENT_KEYS = ("min_calls", "max_calls", "min_distinct", "max_repeats")
+NEAR_RATIO = 0.9      # two requests at least this similar are the same request reworded
+_FAKE_AGENT_KEYS = ("min_calls", "max_calls", "min_distinct", "max_repeats", "max_near_repeats")
+
+
+def normalise_request(text):
+    return " ".join((text or "").lower().split())
+
+
+def similar(a, b):
+    """True when two requests are the same or nearly so (case and spacing
+    ignored): a model rarely repeats itself byte for byte, so "please" or
+    "try again" added to a request does not make it a new one."""
+    a, b = normalise_request(a), normalise_request(b)
+    return a == b or difflib.SequenceMatcher(None, a, b, autojunk=False).ratio() >= NEAR_RATIO
 
 
 def _max_parallel(calls):
@@ -121,15 +135,19 @@ def _max_parallel(calls):
 
 def fake_summary(calls):
     """Reduce a fake_subagents call log to what a leader did with each sub-agent."""
-    count, distinct = {}, {}
+    count, distinct, earlier, near = {}, {}, {}, {}
     for c in calls or []:
         a = c.get("agent") or "?"
+        req = normalise_request(c.get("request"))
         count[a] = count.get(a, 0) + 1
-        distinct.setdefault(a, set()).add(" ".join((c.get("request") or "").lower().split()))
+        distinct.setdefault(a, set()).add(req)
+        near[a] = near.get(a, 0) + any(similar(req, e) for e in earlier.get(a, []))
+        earlier.setdefault(a, []).append(req)
     return {
         "calls": count,
         "distinct_requests": {a: len(s) for a, s in distinct.items()},
         "repeats": {a: count[a] - len(distinct[a]) for a in count},
+        "near_repeats": near,
         "max_parallel": _max_parallel(calls or []),
         "requests": [{"agent": c.get("agent"), "n": c.get("n"),
                       "request": (c.get("request") or "")[:FAKE_REQUEST_CHARS]} for c in calls or []],
@@ -146,7 +164,8 @@ def check_fake(expect, summary):
     for agent, want in (expect.get("agents") or {}).items():
         got = {"calls": summary["calls"].get(agent, 0),
                "distinct": summary["distinct_requests"].get(agent, 0),
-               "repeats": summary["repeats"].get(agent, 0)}
+               "repeats": summary["repeats"].get(agent, 0),
+               "near_repeats": summary.get("near_repeats", {}).get(agent, 0)}
         for key in _FAKE_AGENT_KEYS:
             if key not in want:
                 continue

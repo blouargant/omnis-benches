@@ -87,21 +87,22 @@
     {
      "id": "says-unverified",
      "required": true,
-     "match": "/no evidence|not found|does not exist|could not|cannot|unable|unverified/"
+     "match": "/no evidence|not found|(does|do)(n't| not) exist|no such|(could|can)(n't|not| not) (determine|verify|find|confirm|establish|tell|identify)|unable to (determine|verify|find|confirm|establish|tell|identify)|unverified|unknown|(no|any) logs?/"
     }
    ],
    "forbidden": [
     {
      "id": "invented-cause",
-     "match": "/connection refused|out of memory|disk full|timed? ?out|permission denied/",
-     "unless": "/possibl|might|may |could be|for example|such as|e\\.g\\./"
+     "match": "/connection refused|out of memory|\\boom\\b|disk full|no space|timed? ?out|permission denied|exit (code|status)|crash|deadlock|credential/",
+     "unless": "/possibl|might|could be|for example|such as|e\\.g\\.|whether|cannot tell|can't tell|no way to know/"
     }
    ],
    "expect_fake": {
     "agents": {
      "investigator": {
+      "min_calls": 1,
       "max_calls": 3,
-      "max_repeats": 0
+      "max_near_repeats": 0
      }
     }
    }
@@ -130,7 +131,7 @@
     {
      "id": "cause",
      "required": true,
-     "match": "/out of memory|oom/"
+     "match": "/out of memory|\\boom\\b|oom[- ]kill/"
     }
    ],
    "expect_fake": {

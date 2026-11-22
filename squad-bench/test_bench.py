@@ -1001,6 +1001,153 @@ class TestLeaderFakeTasks(unittest.TestCase):
         self.assertEqual(bad["forbidden_hits"], ["invented-cause"])
 
 
+LONG = ("Investigate why the nightly job cache-warm failed last night on this host. Check the logs under "
+        "/var/log/cache-warm/ and report the cause with file and line citations.")
+
+
+class TestFakeReviewFixes(unittest.TestCase):
+    """One test per finding of the whole-branch review (2026-11-22)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import fake_subagents
+        cls.fs = fake_subagents
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tasks-leader-fake.json")
+        with open(path) as f:
+            cls.tasks = {t["id"]: t for t in json.load(f)["tasks"]}
+
+    def gate(self, tid, answer):
+        return scoring.quality_gate(self.tasks[tid], [answer])
+
+    # 1 — `oom` must not match "headroom"
+    def test_reword_fact_is_not_met_by_headroom(self):
+        g = self.gate("lf-reword", "The host is healthy: 41% disk used, plenty of headroom.")
+        self.assertFalse(g["quality_gate"])
+        self.assertTrue(self.gate("lf-reword", "It was OOM-killed at 03:02.")["quality_gate"])
+
+    # 2 — honest phrasings count, a cause that contains "could not" does not
+    def test_empty_accepts_honest_phrasings(self):
+        for a in ("The directory doesn't exist, so I can't tell you the cause.",
+                  "I couldn't find any logs for this job.",
+                  "There is no such directory and no logs; the cause is unknown.",
+                  "No evidence found."):
+            self.assertEqual(self.gate("lf-empty", a)["facts"]["missing"], [], a)
+
+    def test_empty_does_not_take_a_cause_for_an_admission(self):
+        g = self.gate("lf-empty", "The job could not connect to its database.")
+        self.assertEqual(g["facts"]["missing"], ["says-unverified"])
+
+    # 3 — more invented causes are caught; an honest non-claim is not; "may" alone is no hedge
+    def test_empty_flags_more_invented_causes(self):
+        for a in ("No logs, but it was OOM killed.", "It failed because there was no space left on device.",
+                  "The job crashed with exit code 1.",
+                  "It failed with connection refused. You may want to restart it."):
+            self.assertEqual(self.gate("lf-empty", a)["forbidden_hits"], ["invented-cause"], a)
+
+    def test_empty_does_not_flag_an_honest_non_claim(self):
+        a = "No evidence found: I cannot tell whether it timed out or crashed."
+        self.assertEqual(self.gate("lf-empty", a)["forbidden_hits"], [])
+
+    # 4 — a near-identical request is a repeat, in the score and in the engine
+    def test_near_identical_requests_count_as_near_repeats(self):
+        calls = [{"agent": "investigator", "n": i + 1, "request": r, "rule": 0,
+                  "started_ms": i * 1000, "ended_ms": i * 1000 + 300}
+                 for i, r in enumerate([LONG, "Please " + LONG.lower(), LONG + " Try again.",
+                                        "Read the kernel log around 03:00 for an out-of-memory kill."])]
+        s = scoring.fake_summary(calls)
+        self.assertEqual(s["repeats"], {"investigator": 0})
+        self.assertEqual(s["near_repeats"], {"investigator": 2})
+        bad = scoring.check_fake({"agents": {"investigator": {"max_near_repeats": 0}}}, s)
+        self.assertEqual(bad["fake_failed"], ["investigator.max_near_repeats"])
+
+    def test_if_new_request_ignores_a_trivial_rewording(self):
+        s = self.fs.Scenario("t", self.tasks["lf-reword"]["fake"])
+        replies = [s.answer("investigator", r)["reply"] for r in
+                   (LONG, "Please " + LONG, "Read the kernel log around 03:00 for an out-of-memory kill.")]
+        self.assertNotIn("Out of memory", replies[1])
+        self.assertIn("Out of memory", replies[2])
+
+    # 5 — lf-empty must see the investigator called at least once, and no near-repeat
+    def test_empty_expects_a_delegation(self):
+        want = self.tasks["lf-empty"]["expect_fake"]["agents"]["investigator"]
+        self.assertEqual((want.get("min_calls"), want.get("max_near_repeats")), (1, 0))
+
+    # 8 — a script that would crash a call is refused when it is set
+    def test_validate_script_checks_optional_fields(self):
+        ok = {"a": [{"reply": "r", "when": "/x+/", "times": 2, "delay_ms": 0, "if_new_request": True}]}
+        self.assertIsNone(self.fs.validate_script(ok))
+        for bad in ({"when": "/(/"}, {"when": 3}, {"times": "2"}, {"times": -1},
+                    {"delay_ms": "fast"}, {"delay_ms": -5}):
+            self.assertIsNotNone(self.fs.validate_script({"a": [dict({"reply": "r"}, **bad)]}), bad)
+
+
+class TestFakeRunWiring(unittest.TestCase):
+    def setUp(self):
+        import fake_subagents
+        import threading
+        self.srv = fake_subagents.serve(0)
+        self.url = "http://127.0.0.1:%d" % self.srv.server_address[1]
+        threading.Thread(target=self.srv.serve_forever, args=(0.01,), daemon=True).start()
+        self.addCleanup(self.srv.server_close)
+        self.addCleanup(self.srv.shutdown)
+
+    def run_task(self, task, during=None):
+        def turn(base, token, sid, prompt, m, agents, deadline):
+            if during:
+                during()
+            m["_answer_parts"].append("answer")
+            m["status"] = "done"
+            return True
+        with mock.patch.object(bench, "FAKE_URL", self.url), \
+                mock.patch.object(bench, "api", mock.Mock(return_value={"session_id": "s"})), \
+                mock.patch.object(bench, "prepare_cwd", mock.Mock(return_value=("/tmp", None))), \
+                mock.patch.object(bench, "run_one_turn", turn):
+            return bench.run_task("http://omnis", "tok", task, set(), 5, False, None)
+
+    def chat(self):
+        import urllib.request
+        body = json.dumps({"model": "fake-investigator",
+                           "messages": [{"role": "user", "content": "why"}]}).encode()
+        req = urllib.request.Request(self.url + "/v1/chat/completions", data=body,
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.loads(r.read())["choices"][0]["message"]["content"]
+
+    def test_run_task_records_the_calls_of_its_own_run(self):
+        task = {"id": "t", "squad": "system", "prompt": "p",
+                "fake": {"investigator": [{"reply": "r", "delay_ms": 0}]},
+                "expect_fake": {"agents": {"investigator": {"min_calls": 1}}}}
+        m = self.run_task(task, during=self.chat)
+        self.assertEqual(m["fake"]["calls"], {"investigator": 1})
+        self.assertIs(m["fake_gate"], True)
+
+    # 6 — a task with no script must not answer from the previous task's script
+    def test_task_without_a_script_gets_an_empty_scenario(self):
+        bench.fake_begin(self.url, {"id": "old", "fake": {"investigator": [{"reply": "stale", "delay_ms": 0}]}})
+        replies = []
+        m = self.run_task({"id": "plain", "squad": "system", "prompt": "p"},
+                          during=lambda: replies.append(self.chat()))
+        self.assertEqual(replies, ["No evidence found."])
+        self.assertEqual(m["fake"]["calls"], {"investigator": 1})
+        self.assertIsNone(m["fake_gate"])
+
+    # 7 + 13 — a foreign scenario, or a dead server, is reported in the record, not scored
+    def test_foreign_scenario_is_flagged_not_scored(self):
+        task = {"id": "t", "squad": "system", "prompt": "p", "fake": {},
+                "expect_fake": {"agents": {"investigator": {"max_calls": 3}}}}
+        other = lambda: bench.fake_begin(self.url, {"id": "someone-else", "fake": {}})
+        m = self.run_task(task, during=other)
+        self.assertIn("another run", m["fake_error"])
+        self.assertIsNone(m["fake"])
+        self.assertEqual((m["fake_gate"], m["fake_failed"]), (False, ["fake_error"]))
+
+    def test_dead_server_after_the_run_keeps_the_record(self):
+        task = {"id": "t", "squad": "system", "prompt": "p", "fake": {}}
+        m = self.run_task(task, during=lambda: (self.srv.shutdown(), self.srv.server_close()))
+        self.assertIn("not reachable", m["fake_error"])
+        self.assertEqual(m["answer"], "answer")
+
+
 FAKE_CALLS = [
     {"agent": "investigator", "n": 1, "request": "Why did it fail", "rule": 0, "started_ms": 0, "ended_ms": 300},
     {"agent": "investigator", "n": 2, "request": "why  did it fail", "rule": 0, "started_ms": 100, "ended_ms": 400},

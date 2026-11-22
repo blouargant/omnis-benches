@@ -80,8 +80,10 @@ OpenAI-compatible, stdlib only, streaming and non-streaming, adapted from
     `scoring.match_rule`) — needed to give each of two questions its own
     finding;
   - `times`: how many times it may be used (default unlimited);
-  - `if_new_request: true`: usable only when the request differs from every
-    earlier request of that agent in this task (whitespace and case ignored);
+  - `if_new_request: true`: usable only when the request is unlike every
+    earlier request of that agent in this task (whitespace and case ignored;
+    90 % similar counts as the same — added after the branch review, since a
+    model rarely repeats itself byte for byte);
   - `status`: answer with this HTTP error instead of a reply;
   - `delay_ms` (default 300, so overlapping calls are observable).
   The first usable rule wins. No usable rule, or an agent absent from the

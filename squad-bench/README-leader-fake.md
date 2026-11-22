@@ -52,18 +52,23 @@ for an agent absent from the script, the reply is `No evidence found.`
 | `status` | answer with this HTTP error instead |
 | `when` | the leader's request must match (`/regex/` or substring) |
 | `times` | how many times the rule may be used |
-| `if_new_request` | only for a request this agent has not received before in the task (case and spacing ignored) |
+| `if_new_request` | only for a request unlike any this agent received before in the task: case and spacing are ignored, and a request at least 90 % similar to an earlier one (an added "please", "try again") is not new |
 | `delay_ms` | wait before answering (default 300, so parallel calls overlap) |
 
 `expect_fake` checks the call log: per agent `min_calls`, `max_calls`,
-`min_distinct`, `max_repeats`; for the task `min_parallel` (calls open at the
-same time). The answer's content is still judged by `facts` and `forbidden`.
+`min_distinct`, `max_repeats` (identical requests), `max_near_repeats`
+(requests at least 90 % similar to an earlier one, identical ones included);
+for the task `min_parallel` (calls open at the same time, all agents together). The answer's content is still judged by `facts` and `forbidden`.
 
 ## What the record gains
 
-`fake: {calls, distinct_requests, repeats, max_parallel, requests}` (each
-request cut at 500 chars), `fake_gate` (true / false / null when the task
-expects nothing) and `fake_failed` (e.g. `["investigator.max_repeats"]`).
+`fake: {calls, distinct_requests, repeats, near_repeats, max_parallel,
+requests}` (each request cut at 500 chars), `fake_gate` (true / false / null
+when the task expects nothing) and `fake_failed` (e.g.
+`["investigator.max_near_repeats"]`). With `--fake`, every task gets these,
+scripted or not (an unscripted task's sub-agents all answer the default). When
+the log cannot be read — the server died, or another run replaced the scenario
+— the record carries `fake_error` and `fake_gate` is false: it is never scored.
 
 ## Shipped scenarios (`tasks-leader-fake.json`, System leader)
 
@@ -71,10 +76,19 @@ expects nothing) and `fake_failed` (e.g. `["investigator.max_repeats"]`).
 |---|---|---|
 | `lf-good` | a correct, cited finding | one call; the answer states it |
 | `lf-fanout` | one finding per question | two calls open at once; both findings |
-| `lf-empty` | never any evidence | at most 3 calls, none repeated; the answer says so and states no cause |
+| `lf-empty` | never any evidence | 1 to 3 calls, none a near-repeat; the answer says so and states no cause |
 | `lf-reword` | off-topic first, the finding only for a reworded request | two distinct requests; the answer states it |
 
 ## Limits
+
+- **Read the `lf-empty` answers by hand.** "States no cause" is judged by a
+  list of regexes; it catches the common inventions, not all of them.
+- The leader can check the host itself (`ls /var/log/…`) and find the scripted
+  evidence is not there. Break results down by the record's `leader_tools`.
+- `lf-reword` also passes when the leader sends two different requests at once;
+  check in `fake.requests` that the second came after the first reply.
+- A time limit on the arm (`OMNIS_TURN_MAX_SECONDS`) appends a note to every
+  sub-agent request and breaks the repeat counts; `setup-ab.sh` sets none.
 
 - omnis retries an HTTP 5xx, so a `status` rule is logged once per attempt.
 - The leader keeps its own tools (`Bash`, `Read`…) and the arm runs with
