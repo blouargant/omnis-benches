@@ -47,6 +47,16 @@ class TestFakeOverlay(unittest.TestCase):
                          {"model_ref": "fake-summariser"})
         self.assertEqual(load(out / "registry/agents/leader/agent.json"), {"model_ref": "balanced"})
 
+    def test_several_leaders_get_the_model(self):
+        (self.sys / "registry/agents/coder").mkdir()
+        out = fake_overlay.build_overlay(self.sys, ["investigator"], 18770, self.out,
+                                         leader=["leader", "coder"], leader_model="balanced")
+        for name in ("leader", "coder"):
+            self.assertEqual(load(out / "registry/agents" / name / "agent.json"), {"model_ref": "balanced"})
+        with self.assertRaises(SystemExit):
+            fake_overlay.build_overlay(self.sys, ["investigator"], 18770, self.out,
+                                       leader=["leader", "investigator"], leader_model="balanced")
+
     def test_leader_is_left_alone_by_default(self):
         out = fake_overlay.build_overlay(self.sys, ["investigator"], 18770, self.out)
         self.assertFalse((out / "registry/agents/leader").exists())

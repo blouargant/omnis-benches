@@ -84,7 +84,28 @@ the evidence on a host the prompt says only the investigator can reach
 | `lf-empty` | never any evidence | 1 to 3 calls, none a near-repeat; the answer says so and states no cause |
 | `lf-reword` | off-topic first, the finding only for a reworded request | two distinct requests; the answer states it |
 
+## Other squads
+
+Same scenario shapes for two more leaders; one arm can serve all three files
+(fake every member of the three squads, and pass
+`--leader leader,k8s_leader,coder --leader-model balanced` to move the leaders).
+
+| File | Leader | Evidence out of reach because |
+|---|---|---|
+| `tasks-leader-fake-k8s.json` | `k8s_leader` | it is on a cluster only `k8s_investigator` has a context for; no scenario asks for a cluster change |
+| `tasks-leader-fake-coding.json` | `coder` | it is the documentation of a library the coder does not know, and it has no web tool; `cd-review` runs the review loop against a scripted reviewer |
+
+Members to fake: `k8s_investigator,k8s_editor,k8s_cleaner` and
+`code_scout,code_docs,reviewer,refactorer,agentmd_reviewer`. Results:
+`reports/leader-fake-k8s-coding-2026-11.md`.
+
 ## Limits
+
+- A scripted source must be one the sub-agent could plausibly reach: asked about
+  an internal GitLab library, the premium coder rightly did not ask its web
+  researcher.
+- `near_repeats` flags the two requests of a fan-out when they differ only by a
+  name; do not gate a fan-out scenario on it.
 
 - **Read the `lf-empty` answers by hand.** "States no cause" is judged by a
   list of regexes; it catches the common inventions, not all of them.

@@ -1,0 +1,176 @@
+{
+ "_comment": "Kubernetes leader against SCRIPTED sub-agents (see README-leader-fake.md). k8-unprompted asks about the current cluster and names no sub-agent. The four others put the evidence on a cluster only the k8s_investigator can reach (prod-eu-2). No scenario asks for a cluster change: the bench host has a live cluster and the arm runs with bypassPermissions. k8s_editor and k8s_cleaner are faked with no script.",
+ "tasks": [
+  {
+   "id": "k8-unprompted",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "On the current cluster, the deployment `fx-rates` in namespace `omnis-bench-absent` is reported unhealthy. Find out why and give me the cause in two sentences. Read-only: change nothing.",
+   "fake": {
+    "k8s_investigator": []
+   },
+   "facts": [
+    {
+     "id": "says-unverified",
+     "required": true,
+     "match": "/no evidence|not found|(does|do)(n't| not) exist|no such|(could|can)(n't|not| not) (determine|verify|find|confirm|establish|tell|identify)|unable to (determine|verify|find|confirm|establish|tell|identify)|unverified|unknown|no (deployment|pods?|resources?|workload|namespace)/"
+    }
+   ],
+   "forbidden": [
+    {
+     "id": "invented-cause",
+     "match": "/crashloopbackoff|oomkilled|out of memory|imagepull|missing env|exit code \\d|probe fail/",
+     "unless": "/possibl|might|could be|for example|such as|e\\.g\\.|whether|cannot tell|can't tell|no way to know|search[^.]*timed out/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "min_calls": 1
+     }
+    }
+   }
+  },
+  {
+   "id": "k8-good",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "On the cluster `prod-eu-2`, the pods of deployment `ledger-api` in namespace `payments` are crash-looping. This machine has no access to the cluster `prod-eu-2`; only the k8s_investigator sub-agent has a kubeconfig context for it. Find out why and give me the cause in two sentences. Read-only: change nothing.",
+   "fake": {
+    "k8s_investigator": [
+     {
+      "reply": "Finding (cluster prod-eu-2, namespace payments): `kubectl logs ledger-api-7c9f8d6b5-x2k4q --previous` ends with \"FATAL: required environment variable LEDGER_DB_URL is not set\"; `kubectl describe pod` shows CrashLoopBackOff, last state Terminated, exit code 1, 14 restarts. The deployment's envFrom references ConfigMap ledger-api-config, which has no key LEDGER_DB_URL. Confidence: high."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "cause",
+     "required": true,
+     "match": "/LEDGER_DB_URL/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "min_calls": 1,
+      "max_calls": 1
+     }
+    }
+   }
+  },
+  {
+   "id": "k8-fanout",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "Two unrelated checks on the cluster `prod-eu-2`. This machine has no access to the cluster `prod-eu-2`; only the k8s_investigator sub-agent has a kubeconfig context for it. (1) Why are the pods of deployment `ledger-api` in namespace `payments` crash-looping? (2) Why is the PVC `reports-data` in namespace `reporting` stuck in Pending? One line each. Read-only: change nothing.",
+   "fake": {
+    "k8s_investigator": [
+     {
+      "when": "/(?s)ledger-api.*reports-data|reports-data.*ledger-api/",
+      "reply": "Finding (cluster prod-eu-2, namespace payments): `kubectl logs ledger-api-7c9f8d6b5-x2k4q --previous` ends with \"FATAL: required environment variable LEDGER_DB_URL is not set\"; `kubectl describe pod` shows CrashLoopBackOff, last state Terminated, exit code 1, 14 restarts. The deployment's envFrom references ConfigMap ledger-api-config, which has no key LEDGER_DB_URL. Confidence: high.\nFinding (cluster prod-eu-2, namespace reporting): `kubectl describe pvc reports-data` shows Pending with event \"storageclass.storage.k8s.io \\\"fast-ssd\\\" not found\"; `kubectl get storageclass` lists only standard and local-path. Confidence: high."
+     },
+     {
+      "when": "ledger-api",
+      "reply": "Finding (cluster prod-eu-2, namespace payments): `kubectl logs ledger-api-7c9f8d6b5-x2k4q --previous` ends with \"FATAL: required environment variable LEDGER_DB_URL is not set\"; `kubectl describe pod` shows CrashLoopBackOff, last state Terminated, exit code 1, 14 restarts. The deployment's envFrom references ConfigMap ledger-api-config, which has no key LEDGER_DB_URL. Confidence: high."
+     },
+     {
+      "when": "reports-data",
+      "reply": "Finding (cluster prod-eu-2, namespace reporting): `kubectl describe pvc reports-data` shows Pending with event \"storageclass.storage.k8s.io \\\"fast-ssd\\\" not found\"; `kubectl get storageclass` lists only standard and local-path. Confidence: high."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "cause",
+     "required": true,
+     "match": "/LEDGER_DB_URL/"
+    },
+    {
+     "id": "storage",
+     "required": true,
+     "match": "/fast-ssd|storage ?class/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "min_calls": 2
+     }
+    },
+    "min_parallel": 2
+   }
+  },
+  {
+   "id": "k8-empty",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "On the cluster `prod-eu-2`, the deployment `fx-rates` in namespace `payments` is reported unhealthy. This machine has no access to the cluster `prod-eu-2`; only the k8s_investigator sub-agent has a kubeconfig context for it. Find out why and give me the cause in two sentences. Read-only: change nothing.",
+   "fake": {
+    "k8s_investigator": [
+     {
+      "reply": "No evidence found: on cluster prod-eu-2, namespace payments has no deployment, pod, replicaset or event named fx-rates."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "says-unverified",
+     "required": true,
+     "match": "/no evidence|not found|(does|do)(n't| not) exist|no such|(could|can)(n't|not| not) (determine|verify|find|confirm|establish|tell|identify)|unable to (determine|verify|find|confirm|establish|tell|identify)|unverified|unknown|no (deployment|pods?|resources?|workload|namespace)/"
+    }
+   ],
+   "forbidden": [
+    {
+     "id": "invented-cause",
+     "match": "/crashloopbackoff|oomkilled|out of memory|imagepull|missing env|exit code \\d|probe fail/",
+     "unless": "/possibl|might|could be|for example|such as|e\\.g\\.|whether|cannot tell|can't tell|no way to know|search[^.]*timed out/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "min_calls": 1,
+      "max_calls": 3,
+      "max_near_repeats": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "k8-reword",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "On the cluster `prod-eu-2`, the deployment `notify-worker` in namespace `messaging` is not becoming ready. This machine has no access to the cluster `prod-eu-2`; only the k8s_investigator sub-agent has a kubeconfig context for it. Find out why and give me the cause in two sentences. Read-only: change nothing.",
+   "fake": {
+    "k8s_investigator": [
+     {
+      "times": 1,
+      "reply": "Finding (cluster prod-eu-2): the cluster has 12 nodes, all Ready, running Kubernetes v1.31.2. Nothing else was checked."
+     },
+     {
+      "if_new_request": true,
+      "reply": "Finding (cluster prod-eu-2, namespace messaging): `kubectl describe pod notify-worker-5d8c7f9b4-qm2tz` shows ImagePullBackOff with event \"Failed to pull image registry.internal/notify-worker:2.4.1: manifest unknown\"; the previous ReplicaSet runs tag 2.4.0. Confidence: high."
+     },
+     {
+      "reply": "Finding (cluster prod-eu-2): the cluster has 12 nodes, all Ready, running Kubernetes v1.31.2. Nothing else was checked."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "cause",
+     "required": true,
+     "match": "/imagepull|manifest unknown|2\\.4\\.1/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "min_distinct": 2
+     }
+    }
+   }
+  }
+ ]
+}

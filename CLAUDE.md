@@ -167,7 +167,7 @@ tools — keep them in sync if you change the protocol handling.
     a fake `bench.run_task` — **never a live server**, so these tests are
     safe to run alongside a real campaign against the running instance.
 - **Leader vs scripted sub-agents** (`fake_subagents.py`, `fake_overlay.py`, `bench.py --fake`,
-  `tasks-leader-fake.json`): the sub-agents' model is a local server answering from the task's
+  `tasks-leader-fake.json`, `-k8s.json`, `-coding.json`): the sub-agents' model is a local server answering from the task's
   `fake` script, the leader keeps a real model; `expect_fake` gates the call log (calls, repeats,
   parallel). Needs `MODEL=tiered`. See `squad-bench/README-leader-fake.md`.
 - Unit tests: `python3 -m unittest discover -s squad-bench` (stdlib only).
