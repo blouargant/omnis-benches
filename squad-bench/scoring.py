@@ -97,3 +97,63 @@ def quality_gate(task, answers):
     declared = bool(task.get("facts")) or bool(task.get("forbidden"))
     passed = (not facts["missing"] and not hits) if declared else None
     return {"facts": facts, "forbidden_hits": hits, "quality_gate": passed}
+
+
+# ----------------------------------------------------------------------------- fake sub-agents
+FAKE_REQUEST_CHARS = 500
+_FAKE_AGENT_KEYS = ("min_calls", "max_calls", "min_distinct", "max_repeats")
+
+
+def _max_parallel(calls):
+    """Largest number of calls open at once. A call ending when another starts
+    does not overlap it; a call with no end is open from its start on."""
+    events = []
+    for c in calls:
+        events.append((c.get("started_ms") or 0, 1))
+        if c.get("ended_ms") is not None:
+            events.append((c["ended_ms"], -1))
+    best = cur = 0
+    for _, step in sorted(events):      # at one instant, -1 sorts before +1
+        cur += step
+        best = max(best, cur)
+    return best
+
+
+def fake_summary(calls):
+    """Reduce a fake_subagents call log to what a leader did with each sub-agent."""
+    count, distinct = {}, {}
+    for c in calls or []:
+        a = c.get("agent") or "?"
+        count[a] = count.get(a, 0) + 1
+        distinct.setdefault(a, set()).add(" ".join((c.get("request") or "").lower().split()))
+    return {
+        "calls": count,
+        "distinct_requests": {a: len(s) for a, s in distinct.items()},
+        "repeats": {a: count[a] - len(distinct[a]) for a in count},
+        "max_parallel": _max_parallel(calls or []),
+        "requests": [{"agent": c.get("agent"), "n": c.get("n"),
+                      "request": (c.get("request") or "")[:FAKE_REQUEST_CHARS]} for c in calls or []],
+    }
+
+
+def check_fake(expect, summary):
+    """Verdict of a task's `expect_fake` on a fake_summary. `fake_gate` is None
+    when the task expects nothing; a failed check is named `<agent>.<key>` or
+    `min_parallel`. An agent that was never called counts as 0."""
+    if not expect:
+        return {"fake_gate": None, "fake_failed": []}
+    failed = []
+    for agent, want in (expect.get("agents") or {}).items():
+        got = {"calls": summary["calls"].get(agent, 0),
+               "distinct": summary["distinct_requests"].get(agent, 0),
+               "repeats": summary["repeats"].get(agent, 0)}
+        for key in _FAKE_AGENT_KEYS:
+            if key not in want:
+                continue
+            bound, field = key.split("_", 1)
+            ok = got[field] >= want[key] if bound == "min" else got[field] <= want[key]
+            if not ok:
+                failed.append(f"{agent}.{key}")
+    if "min_parallel" in expect and summary["max_parallel"] < expect["min_parallel"]:
+        failed.append("min_parallel")
+    return {"fake_gate": not failed, "fake_failed": failed}

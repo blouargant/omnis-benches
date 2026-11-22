@@ -859,6 +859,55 @@ class TestFetchAnomalyVolumeFloor(unittest.TestCase):
         self.assertNotIn("fetches=", erroring["degraded_reason"])
 
 
+FAKE_CALLS = [
+    {"agent": "investigator", "n": 1, "request": "Why did it fail", "rule": 0, "started_ms": 0, "ended_ms": 300},
+    {"agent": "investigator", "n": 2, "request": "why  did it fail", "rule": 0, "started_ms": 100, "ended_ms": 400},
+    {"agent": "helper", "n": 1, "request": "x" * 900, "rule": None, "started_ms": 500, "ended_ms": 800}]
+
+
+class TestFakeScoring(unittest.TestCase):
+    def test_summary(self):
+        s = scoring.fake_summary(FAKE_CALLS)
+        self.assertEqual(s["calls"], {"investigator": 2, "helper": 1})
+        self.assertEqual(s["distinct_requests"], {"investigator": 1, "helper": 1})
+        self.assertEqual(s["repeats"], {"investigator": 1, "helper": 0})
+        self.assertEqual(s["max_parallel"], 2)
+        self.assertEqual(len(s["requests"][2]["request"]), 500)
+        self.assertEqual((s["requests"][0]["agent"], s["requests"][0]["n"]), ("investigator", 1))
+
+    def test_back_to_back_calls_are_not_parallel(self):
+        calls = [dict(FAKE_CALLS[0], started_ms=0, ended_ms=300),
+                 dict(FAKE_CALLS[1], started_ms=300, ended_ms=600)]
+        self.assertEqual(scoring.fake_summary(calls)["max_parallel"], 1)
+
+    def test_unfinished_call_counts_as_open(self):
+        calls = [dict(FAKE_CALLS[0], ended_ms=None), dict(FAKE_CALLS[1])]
+        self.assertEqual(scoring.fake_summary(calls)["max_parallel"], 2)
+
+    def test_check_fake_passes(self):
+        s = scoring.fake_summary(FAKE_CALLS)
+        ok = scoring.check_fake(
+            {"agents": {"investigator": {"min_calls": 2, "max_calls": 3}}, "min_parallel": 2}, s)
+        self.assertEqual(ok, {"fake_gate": True, "fake_failed": []})
+
+    def test_check_fake_names_every_failed_check(self):
+        s = scoring.fake_summary(FAKE_CALLS)
+        bad = scoring.check_fake({"agents": {"investigator": {"max_repeats": 0, "min_distinct": 2},
+                                             "summariser": {"min_calls": 1}}, "min_parallel": 3}, s)
+        self.assertEqual(bad["fake_gate"], False)
+        self.assertEqual(sorted(bad["fake_failed"]),
+                         ["investigator.max_repeats", "investigator.min_distinct",
+                          "min_parallel", "summariser.min_calls"])
+
+    def test_check_fake_without_expectations(self):
+        s = scoring.fake_summary(FAKE_CALLS)
+        self.assertEqual(scoring.check_fake(None, s), {"fake_gate": None, "fake_failed": []})
+
+    def test_empty_log(self):
+        s = scoring.fake_summary([])
+        self.assertEqual((s["calls"], s["max_parallel"], s["requests"]), ({}, 0, []))
+
+
 if __name__ == "__main__":
     unittest.main()
 
