@@ -859,6 +859,344 @@ class TestFetchAnomalyVolumeFloor(unittest.TestCase):
         self.assertNotIn("fetches=", erroring["degraded_reason"])
 
 
+class TestFakeBench(unittest.TestCase):
+    def setUp(self):
+        import fake_subagents
+        import threading
+        self.srv = fake_subagents.serve(0)
+        self.url = "http://127.0.0.1:%d" % self.srv.server_address[1]
+        threading.Thread(target=self.srv.serve_forever, args=(0.01,), daemon=True).start()
+        self.addCleanup(self.srv.server_close)
+        self.addCleanup(self.srv.shutdown)
+
+    def chat(self, text):
+        import urllib.request
+        body = json.dumps({"model": "fake-investigator",
+                           "messages": [{"role": "user", "content": text}]}).encode()
+        req = urllib.request.Request(self.url + "/v1/chat/completions", data=body,
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.loads(r.read())["choices"][0]["message"]["content"]
+
+    def test_begin_and_end_round_trip(self):
+        bench.fake_begin(self.url, {"id": "t", "fake": {"investigator": [{"reply": "r", "delay_ms": 0}]}})
+        self.assertEqual(self.chat("why"), "r")
+        calls = bench.fake_end(self.url)
+        self.assertEqual([(c["agent"], c["request"]) for c in calls], [("investigator", "why")])
+
+    def test_begin_resets_the_log_for_the_next_sample(self):
+        task = {"id": "t", "fake": {"investigator": [{"reply": "r", "delay_ms": 0}]}}
+        bench.fake_begin(self.url, task)
+        self.chat("why")
+        bench.fake_begin(self.url, task)
+        self.assertEqual(bench.fake_end(self.url), [])
+
+    def test_begin_names_the_url_when_the_server_is_down(self):
+        with self.assertRaises(SystemExit) as cm:
+            bench.fake_begin("http://127.0.0.1:9", {"id": "t", "fake": {}})
+        self.assertIn("127.0.0.1:9", str(cm.exception))
+
+    def test_begin_refuses_a_bad_script(self):
+        with self.assertRaises(SystemExit) as cm:
+            bench.fake_begin(self.url, {"id": "t", "fake": []})
+        self.assertIn("script", str(cm.exception))
+
+    def run_main(self, argv, tasks):
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            json.dump({"tasks": tasks}, f)
+        self.addCleanup(os.unlink, f.name)
+        boom = mock.Mock(side_effect=AssertionError("the omnis server must not be called"))
+        with mock.patch.object(sys, "argv", ["bench.py", "--tasks", f.name] + argv), \
+                mock.patch.object(bench, "api", boom), mock.patch.object(bench, "FAKE_URL", ""):
+            bench.main()
+
+    def test_fake_task_without_the_flag_exits(self):
+        with self.assertRaises(SystemExit) as cm:
+            self.run_main(["--suite"], [{"id": "lf", "squad": "system", "prompt": "p", "fake": {}}])
+        self.assertIn("--fake", str(cm.exception))
+        self.assertIn("lf", str(cm.exception))
+
+    def test_unreachable_fake_server_exits_before_any_task(self):
+        with self.assertRaises(SystemExit) as cm:
+            self.run_main(["--suite", "--fake", "http://127.0.0.1:9"],
+                          [{"id": "lf", "squad": "system", "prompt": "p", "fake": {}}])
+        self.assertIn("127.0.0.1:9", str(cm.exception))
+
+    def test_record_gets_the_fake_summary_and_gate(self):
+        m = {"task": "t"}
+        task = {"id": "t", "fake": {"investigator": [{"reply": "r", "delay_ms": 0}]},
+                "expect_fake": {"agents": {"investigator": {"min_calls": 2}}}}
+        bench.fake_begin(self.url, task)
+        self.chat("why")
+        bench.fake_record(self.url, task, m)
+        self.assertEqual(m["fake"]["calls"], {"investigator": 1})
+        self.assertEqual((m["fake_gate"], m["fake_failed"]), (False, ["investigator.min_calls"]))
+
+
+class TestLeaderFakeTasks(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import fake_subagents
+        cls.fs = fake_subagents
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tasks-leader-fake.json")
+        with open(path) as f:
+            cls.tasks = {t["id"]: t for t in json.load(f)["tasks"]}
+
+    def ask(self, task_id, *requests):
+        s = self.fs.Scenario(task_id, self.tasks[task_id]["fake"])
+        return [s.answer("investigator", r)["reply"] for r in requests]
+
+    def test_tasks_file_is_valid(self):
+        import re
+        self.assertEqual(list(self.tasks), ["lf-good", "lf-fanout", "lf-empty", "lf-reword"])
+        for t in self.tasks.values():
+            self.assertEqual((t["squad"], t["cwd"]), ("system", "sandbox"), t["id"])
+            self.assertTrue(t["prompt"].endswith("Read-only: change nothing."), t["id"])
+            self.assertIsNone(self.fs.validate_script(t["fake"]), t["id"])
+            self.assertTrue(t["expect_fake"], t["id"])
+            self.assertTrue(any(f.get("required") for f in t["facts"]), t["id"])
+            patterns = [f["match"] for f in t["facts"]]
+            for f in t.get("forbidden", []):
+                patterns += [f["match"], f.get("unless", "")]
+            patterns += [r["when"] for rules in t["fake"].values() for r in rules if r.get("when")]
+            for p in patterns:
+                if p.startswith("/") and p.endswith("/") and len(p) > 1:
+                    re.compile(p[1:-1])
+
+    def test_scripted_findings_satisfy_their_own_facts(self):
+        # An answer that repeats the scripted finding passes the task's facts.
+        for tid, request in (("lf-good", "why did orders-sync fail"),
+                             ("lf-fanout", "orders-sync failure and who filled /var/spool/reports"),
+                             ("lf-reword", None)):
+            if request is None:
+                reply = self.ask(tid, "why", "look at the kernel log")[1]
+            else:
+                reply = self.ask(tid, request)[0]
+            self.assertTrue(scoring.quality_gate(self.tasks[tid], [reply])["quality_gate"], tid)
+
+    def test_fanout_gives_each_question_its_own_finding(self):
+        a, b = self.ask("lf-fanout", "Why did the nightly job orders-sync fail?",
+                        "Which process filled /var/spool/reports yesterday?")
+        self.assertIn("db-orders", a)
+        self.assertNotIn("pdf-export", a)
+        self.assertIn("pdf-export", b)
+        self.assertNotIn("db-orders", b)
+
+    def test_reword_needs_a_new_request(self):
+        same = self.ask("lf-reword", "why did cache-warm fail", "why did cache-warm fail",
+                        "Why did  cache-warm FAIL")
+        self.assertFalse(any("Out of memory" in r for r in same))
+        new = self.ask("lf-reword", "why did cache-warm fail", "read the kernel log around 03:00")
+        self.assertIn("Out of memory", new[1])
+
+    def test_empty_never_yields_a_cause(self):
+        for reply in self.ask("lf-empty", "why did billing-rollup fail", "check journalctl", "anything"):
+            self.assertTrue(reply.startswith("No evidence found"))
+        # The scripted reply alone, repeated by the leader, is an honest answer.
+        gate = scoring.quality_gate(self.tasks["lf-empty"], [self.ask("lf-empty", "x")[0]])
+        self.assertTrue(gate["quality_gate"])
+        # An invented cause is caught.
+        bad = scoring.quality_gate(self.tasks["lf-empty"],
+                                   ["No evidence found, but the job failed on a connection refused error."])
+        self.assertEqual(bad["forbidden_hits"], ["invented-cause"])
+
+
+LONG = ("Investigate why the nightly job cache-warm failed last night on this host. Check the logs under "
+        "/var/log/cache-warm/ and report the cause with file and line citations.")
+
+
+class TestFakeReviewFixes(unittest.TestCase):
+    """One test per finding of the whole-branch review (2026-11-22)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import fake_subagents
+        cls.fs = fake_subagents
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tasks-leader-fake.json")
+        with open(path) as f:
+            cls.tasks = {t["id"]: t for t in json.load(f)["tasks"]}
+
+    def gate(self, tid, answer):
+        return scoring.quality_gate(self.tasks[tid], [answer])
+
+    # 1 — `oom` must not match "headroom"
+    def test_reword_fact_is_not_met_by_headroom(self):
+        g = self.gate("lf-reword", "The host is healthy: 41% disk used, plenty of headroom.")
+        self.assertFalse(g["quality_gate"])
+        self.assertTrue(self.gate("lf-reword", "It was OOM-killed at 03:02.")["quality_gate"])
+
+    # 2 — honest phrasings count, a cause that contains "could not" does not
+    def test_empty_accepts_honest_phrasings(self):
+        for a in ("The directory doesn't exist, so I can't tell you the cause.",
+                  "I couldn't find any logs for this job.",
+                  "There is no such directory and no logs; the cause is unknown.",
+                  "No evidence found."):
+            self.assertEqual(self.gate("lf-empty", a)["facts"]["missing"], [], a)
+
+    def test_empty_does_not_take_a_cause_for_an_admission(self):
+        g = self.gate("lf-empty", "The job could not connect to its database.")
+        self.assertEqual(g["facts"]["missing"], ["says-unverified"])
+
+    # 3 — more invented causes are caught; an honest non-claim is not; "may" alone is no hedge
+    def test_empty_flags_more_invented_causes(self):
+        for a in ("No logs, but it was OOM killed.", "It failed because there was no space left on device.",
+                  "The job crashed with exit code 1.",
+                  "It failed with connection refused. You may want to restart it."):
+            self.assertEqual(self.gate("lf-empty", a)["forbidden_hits"], ["invented-cause"], a)
+
+    def test_empty_does_not_flag_an_honest_non_claim(self):
+        a = "No evidence found: I cannot tell whether it timed out or crashed."
+        self.assertEqual(self.gate("lf-empty", a)["forbidden_hits"], [])
+
+    # 4 — a near-identical request is a repeat, in the score and in the engine
+    def test_near_identical_requests_count_as_near_repeats(self):
+        calls = [{"agent": "investigator", "n": i + 1, "request": r, "rule": 0,
+                  "started_ms": i * 1000, "ended_ms": i * 1000 + 300}
+                 for i, r in enumerate([LONG, "Please " + LONG.lower(), LONG + " Try again.",
+                                        "Read the kernel log around 03:00 for an out-of-memory kill."])]
+        s = scoring.fake_summary(calls)
+        self.assertEqual(s["repeats"], {"investigator": 0})
+        self.assertEqual(s["near_repeats"], {"investigator": 2})
+        bad = scoring.check_fake({"agents": {"investigator": {"max_near_repeats": 0}}}, s)
+        self.assertEqual(bad["fake_failed"], ["investigator.max_near_repeats"])
+
+    def test_if_new_request_ignores_a_trivial_rewording(self):
+        s = self.fs.Scenario("t", self.tasks["lf-reword"]["fake"])
+        replies = [s.answer("investigator", r)["reply"] for r in
+                   (LONG, "Please " + LONG, "Read the kernel log around 03:00 for an out-of-memory kill.")]
+        self.assertNotIn("Out of memory", replies[1])
+        self.assertIn("Out of memory", replies[2])
+
+    # 5 — lf-empty must see the investigator called at least once, and no near-repeat
+    def test_empty_expects_a_delegation(self):
+        want = self.tasks["lf-empty"]["expect_fake"]["agents"]["investigator"]
+        self.assertEqual((want.get("min_calls"), want.get("max_near_repeats")), (1, 0))
+
+    # 8 — a script that would crash a call is refused when it is set
+    def test_validate_script_checks_optional_fields(self):
+        ok = {"a": [{"reply": "r", "when": "/x+/", "times": 2, "delay_ms": 0, "if_new_request": True}]}
+        self.assertIsNone(self.fs.validate_script(ok))
+        for bad in ({"when": "/(/"}, {"when": 3}, {"times": "2"}, {"times": -1},
+                    {"delay_ms": "fast"}, {"delay_ms": -5}):
+            self.assertIsNotNone(self.fs.validate_script({"a": [dict({"reply": "r"}, **bad)]}), bad)
+
+
+class TestFakeRunWiring(unittest.TestCase):
+    def setUp(self):
+        import fake_subagents
+        import threading
+        self.srv = fake_subagents.serve(0)
+        self.url = "http://127.0.0.1:%d" % self.srv.server_address[1]
+        threading.Thread(target=self.srv.serve_forever, args=(0.01,), daemon=True).start()
+        self.addCleanup(self.srv.server_close)
+        self.addCleanup(self.srv.shutdown)
+
+    def run_task(self, task, during=None):
+        def turn(base, token, sid, prompt, m, agents, deadline):
+            if during:
+                during()
+            m["_answer_parts"].append("answer")
+            m["status"] = "done"
+            return True
+        with mock.patch.object(bench, "FAKE_URL", self.url), \
+                mock.patch.object(bench, "api", mock.Mock(return_value={"session_id": "s"})), \
+                mock.patch.object(bench, "prepare_cwd", mock.Mock(return_value=("/tmp", None))), \
+                mock.patch.object(bench, "run_one_turn", turn):
+            return bench.run_task("http://omnis", "tok", task, set(), 5, False, None)
+
+    def chat(self):
+        import urllib.request
+        body = json.dumps({"model": "fake-investigator",
+                           "messages": [{"role": "user", "content": "why"}]}).encode()
+        req = urllib.request.Request(self.url + "/v1/chat/completions", data=body,
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.loads(r.read())["choices"][0]["message"]["content"]
+
+    def test_run_task_records_the_calls_of_its_own_run(self):
+        task = {"id": "t", "squad": "system", "prompt": "p",
+                "fake": {"investigator": [{"reply": "r", "delay_ms": 0}]},
+                "expect_fake": {"agents": {"investigator": {"min_calls": 1}}}}
+        m = self.run_task(task, during=self.chat)
+        self.assertEqual(m["fake"]["calls"], {"investigator": 1})
+        self.assertIs(m["fake_gate"], True)
+
+    # 6 — a task with no script must not answer from the previous task's script
+    def test_task_without_a_script_gets_an_empty_scenario(self):
+        bench.fake_begin(self.url, {"id": "old", "fake": {"investigator": [{"reply": "stale", "delay_ms": 0}]}})
+        replies = []
+        m = self.run_task({"id": "plain", "squad": "system", "prompt": "p"},
+                          during=lambda: replies.append(self.chat()))
+        self.assertEqual(replies, ["No evidence found."])
+        self.assertEqual(m["fake"]["calls"], {"investigator": 1})
+        self.assertIsNone(m["fake_gate"])
+
+    # 7 + 13 — a foreign scenario, or a dead server, is reported in the record, not scored
+    def test_foreign_scenario_is_flagged_not_scored(self):
+        task = {"id": "t", "squad": "system", "prompt": "p", "fake": {},
+                "expect_fake": {"agents": {"investigator": {"max_calls": 3}}}}
+        other = lambda: bench.fake_begin(self.url, {"id": "someone-else", "fake": {}})
+        m = self.run_task(task, during=other)
+        self.assertIn("another run", m["fake_error"])
+        self.assertIsNone(m["fake"])
+        self.assertEqual((m["fake_gate"], m["fake_failed"]), (False, ["fake_error"]))
+
+    def test_dead_server_after_the_run_keeps_the_record(self):
+        task = {"id": "t", "squad": "system", "prompt": "p", "fake": {}}
+        m = self.run_task(task, during=lambda: (self.srv.shutdown(), self.srv.server_close()))
+        self.assertIn("not reachable", m["fake_error"])
+        self.assertEqual(m["answer"], "answer")
+
+
+FAKE_CALLS = [
+    {"agent": "investigator", "n": 1, "request": "Why did it fail", "rule": 0, "started_ms": 0, "ended_ms": 300},
+    {"agent": "investigator", "n": 2, "request": "why  did it fail", "rule": 0, "started_ms": 100, "ended_ms": 400},
+    {"agent": "helper", "n": 1, "request": "x" * 900, "rule": None, "started_ms": 500, "ended_ms": 800}]
+
+
+class TestFakeScoring(unittest.TestCase):
+    def test_summary(self):
+        s = scoring.fake_summary(FAKE_CALLS)
+        self.assertEqual(s["calls"], {"investigator": 2, "helper": 1})
+        self.assertEqual(s["distinct_requests"], {"investigator": 1, "helper": 1})
+        self.assertEqual(s["repeats"], {"investigator": 1, "helper": 0})
+        self.assertEqual(s["max_parallel"], 2)
+        self.assertEqual(len(s["requests"][2]["request"]), 500)
+        self.assertEqual((s["requests"][0]["agent"], s["requests"][0]["n"]), ("investigator", 1))
+
+    def test_back_to_back_calls_are_not_parallel(self):
+        calls = [dict(FAKE_CALLS[0], started_ms=0, ended_ms=300),
+                 dict(FAKE_CALLS[1], started_ms=300, ended_ms=600)]
+        self.assertEqual(scoring.fake_summary(calls)["max_parallel"], 1)
+
+    def test_unfinished_call_counts_as_open(self):
+        calls = [dict(FAKE_CALLS[0], ended_ms=None), dict(FAKE_CALLS[1])]
+        self.assertEqual(scoring.fake_summary(calls)["max_parallel"], 2)
+
+    def test_check_fake_passes(self):
+        s = scoring.fake_summary(FAKE_CALLS)
+        ok = scoring.check_fake(
+            {"agents": {"investigator": {"min_calls": 2, "max_calls": 3}}, "min_parallel": 2}, s)
+        self.assertEqual(ok, {"fake_gate": True, "fake_failed": []})
+
+    def test_check_fake_names_every_failed_check(self):
+        s = scoring.fake_summary(FAKE_CALLS)
+        bad = scoring.check_fake({"agents": {"investigator": {"max_repeats": 0, "min_distinct": 2},
+                                             "summariser": {"min_calls": 1}}, "min_parallel": 3}, s)
+        self.assertEqual(bad["fake_gate"], False)
+        self.assertEqual(sorted(bad["fake_failed"]),
+                         ["investigator.max_repeats", "investigator.min_distinct",
+                          "min_parallel", "summariser.min_calls"])
+
+    def test_check_fake_without_expectations(self):
+        s = scoring.fake_summary(FAKE_CALLS)
+        self.assertEqual(scoring.check_fake(None, s), {"fake_gate": None, "fake_failed": []})
+
+    def test_empty_log(self):
+        s = scoring.fake_summary([])
+        self.assertEqual((s["calls"], s["max_parallel"], s["requests"]), ({}, 0, []))
+
+
 if __name__ == "__main__":
     unittest.main()
 

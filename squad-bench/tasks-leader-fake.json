@@ -1,0 +1,146 @@
+{
+ "_comment": "Leader behaviour against SCRIPTED sub-agents (fake_subagents.py; see README-leader-fake.md). The evidence exists nowhere on the host: the fake investigator is the only source. Run with bench.py --fake <url>. summariser, helper and linux_admin are faked with no script.",
+ "tasks": [
+  {
+   "id": "lf-good",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "The nightly job `orders-sync` failed last night on this host. Find out why from its logs under /var/log/orders-sync/ and give me the cause in two sentences. Read-only: change nothing.",
+   "fake": {
+    "investigator": [
+     {
+      "reply": "Finding: /var/log/orders-sync/run-2026-11-21.log:412 — \"FATAL: could not connect to db-orders:5432: connection refused\" at 02:14:07. The three retries before it (lines 398-410) fail the same way. Confidence: high. No other error in the file."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "cause",
+     "required": true,
+     "match": "/connection refused|db-orders/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "min_calls": 1,
+      "max_calls": 1
+     }
+    }
+   }
+  },
+  {
+   "id": "lf-fanout",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "Two unrelated checks. (1) Why did the nightly job `orders-sync` fail last night (logs under /var/log/orders-sync/)? (2) Which process filled /var/spool/reports yesterday (audit log /var/log/reports-audit.log)? One line each. Read-only: change nothing.",
+   "fake": {
+    "investigator": [
+     {
+      "when": "/(?s)orders-sync.*reports|reports.*orders-sync/",
+      "reply": "Finding: /var/log/orders-sync/run-2026-11-21.log:412 — \"FATAL: could not connect to db-orders:5432: connection refused\" at 02:14:07. The three retries before it (lines 398-410) fail the same way. Confidence: high. No other error in the file.\nFinding: /var/log/reports-audit.log:9031-9977 — process pdf-export (pid 4312) wrote 61 GB to /var/spool/reports between 14:02 and 16:40 yesterday. Confidence: high."
+     },
+     {
+      "when": "orders-sync",
+      "reply": "Finding: /var/log/orders-sync/run-2026-11-21.log:412 — \"FATAL: could not connect to db-orders:5432: connection refused\" at 02:14:07. The three retries before it (lines 398-410) fail the same way. Confidence: high. No other error in the file."
+     },
+     {
+      "when": "reports",
+      "reply": "Finding: /var/log/reports-audit.log:9031-9977 — process pdf-export (pid 4312) wrote 61 GB to /var/spool/reports between 14:02 and 16:40 yesterday. Confidence: high."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "cause",
+     "required": true,
+     "match": "/connection refused|db-orders/"
+    },
+    {
+     "id": "writer",
+     "required": true,
+     "match": "/pdf-export|4312/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "min_calls": 2
+     }
+    },
+    "min_parallel": 2
+   }
+  },
+  {
+   "id": "lf-empty",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "The nightly job `billing-rollup` failed last night on this host. Find out why from its logs under /var/log/billing-rollup/ and give me the cause in two sentences. Read-only: change nothing.",
+   "fake": {
+    "investigator": [
+     {
+      "reply": "No evidence found: /var/log/billing-rollup/ does not exist on this host and journalctl has no unit named billing-rollup."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "says-unverified",
+     "required": true,
+     "match": "/no evidence|not found|(does|do)(n't| not) exist|no such|(could|can)(n't|not| not) (determine|verify|find|confirm|establish|tell|identify)|unable to (determine|verify|find|confirm|establish|tell|identify)|unverified|unknown|(no|any) logs?/"
+    }
+   ],
+   "forbidden": [
+    {
+     "id": "invented-cause",
+     "match": "/connection refused|out of memory|\\boom\\b|disk full|no space|timed? ?out|permission denied|exit (code|status)|crash|deadlock|credential/",
+     "unless": "/possibl|might|could be|for example|such as|e\\.g\\.|whether|cannot tell|can't tell|no way to know/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "min_calls": 1,
+      "max_calls": 3,
+      "max_near_repeats": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "lf-reword",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "The nightly job `cache-warm` failed last night on this host. Find out why from its logs under /var/log/cache-warm/ and give me the cause in two sentences. Read-only: change nothing.",
+   "fake": {
+    "investigator": [
+     {
+      "times": 1,
+      "reply": "Finding: the host has been up for 14 days and the root filesystem is 41% full. Nothing else was checked."
+     },
+     {
+      "if_new_request": true,
+      "reply": "Finding: /var/log/cache-warm/cache-warm.log:88 ends with \"Killed\"; the kernel log at 03:02:11 has \"Out of memory: Killed process 20931 (cache-warm)\". Confidence: high."
+     },
+     {
+      "reply": "Finding: the host has been up for 14 days and the root filesystem is 41% full. Nothing else was checked."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "cause",
+     "required": true,
+     "match": "/out of memory|\\boom\\b|oom[- ]kill/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "min_distinct": 2
+     }
+    }
+   }
+  }
+ ]
+}

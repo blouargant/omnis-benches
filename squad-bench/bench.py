@@ -178,6 +178,60 @@ def fetch_count(m):
 
 ANSWER_ASKS = False
 NONCE = False
+FAKE_URL = ""     # --fake: a fake_subagents.py server answering for the sub-agents
+
+
+class FakeError(Exception):
+    """The fake sub-agent server could not be used; str() says why."""
+
+
+def _fake_call(fake_url, path, body=None):
+    url = fake_url.rstrip("/") + path
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode(errors="replace")[:300]
+        e.close()
+        raise FakeError(f"fake sub-agent server {url} answered HTTP {e.code}: {detail}")
+    except (OSError, ValueError) as e:
+        raise FakeError(f"fake sub-agent server {url} is not reachable: {e}")
+
+
+def fake_begin(fake_url, task):
+    """Give the fake sub-agent server this task's script (none: every call gets
+    the default reply); its call log restarts. Returns the run's token, which
+    fake_end checks, so a log written by another run is never scored as this one's."""
+    token = f"{task['id']}#{uuid.uuid4().hex[:8]}"
+    try:
+        _fake_call(fake_url, "/scenario", {"task": token, "script": task.get("fake", {})})
+    except FakeError as e:
+        sys.exit(str(e))
+    return token
+
+
+def fake_end(fake_url, token=None):
+    """The calls the sub-agents received since fake_begin. Raises FakeError when
+    the server is gone or now holds another run's scenario."""
+    out = _fake_call(fake_url, "/calls")
+    if token and out.get("task") != token:
+        raise FakeError(f"fake sub-agent server {fake_url} now holds the scenario of another run "
+                        f"({out.get('task')!r}, expected {token!r}): this run's calls are lost")
+    return out.get("calls") or []
+
+
+def fake_record(fake_url, task, m, token=None):
+    """Add the call summary and the `expect_fake` verdict to a run record. A log
+    that cannot be read is reported in `fake_error`, never scored."""
+    try:
+        m["fake"] = scoring.fake_summary(fake_end(fake_url, token))
+    except FakeError as e:
+        m["fake"], m["fake_error"] = None, str(e)
+        m["fake_gate"], m["fake_failed"] = False, ["fake_error"]
+        return
+    m.update(scoring.check_fake(task.get("expect_fake"), m["fake"]))
 ASK_REPLY = "No preference - use your own best judgment and continue without asking me again."
 
 
@@ -336,6 +390,7 @@ def run_one_turn(base, token, sid, prompt, m, agents, deadline):
 
 
 def run_task(base, token, task, agents, deadline, keep, cwd_override):
+    fake_token = fake_begin(FAKE_URL, task) if FAKE_URL else None
     cwd, tmp = prepare_cwd(task, cwd_override)
     sess = api("POST", base, "/api/sessions", token,
                {"squad": task["squad"], "dir": cwd, "name": "bench-" + task["id"]})
@@ -384,6 +439,8 @@ def run_task(base, token, task, agents, deadline, keep, cwd_override):
     m["total_cost_usd"] = round(sum(x["est_cost_usd"] for x in m["models"].values()), 6)
     m["correct"] = check_expect(task.get("expect"), m["answer"])
     m.update(scoring.quality_gate(task, m["answers"]))
+    if FAKE_URL:
+        fake_record(FAKE_URL, task, m, fake_token)
     m["distinct_urls"] = len(m["_urls"])
     m["fetches"] = fetch_count(m)
     m["facts_per_fetch"] = (round(len(m["facts"]["found"]) / m["fetches"], 3)
@@ -435,6 +492,13 @@ def summarize(m):
     f = m.get("facts") or {}
     print(f"  quality_gate={gate}  facts={len(f.get('found', []))}/{f.get('required', 0)}"
           f"  missing={f.get('missing') or '-'}  forbidden={m.get('forbidden_hits') or '-'}")
+    if m.get("fake_error"):
+        print(f"  fake: ERROR {m['fake_error']}")
+    if m.get("fake"):
+        fk = m["fake"]
+        fgate = {True: "PASS", False: "FAIL", None: "n/a"}[m.get("fake_gate")]
+        print(f"  fake: calls={fk['calls']}  repeats={fk['repeats']}  near_repeats={fk['near_repeats']}  max_parallel={fk['max_parallel']}"
+              f"  gate={fgate}  failed={m.get('fake_failed') or '-'}")
     print(f"  fetches={m.get('fetches')}  distinct_urls={m.get('distinct_urls')}"
           f"  facts_per_fetch={m.get('facts_per_fetch')}")
     ans = (m["answer"] or "").replace("\n", " ")
@@ -458,10 +522,13 @@ def main():
                     help="answer AskUserQuestion prompts ('no preference') instead of aborting the run")
     ap.add_argument("--nonce", action="store_true",
                     help="append a unique run tag to the first prompt (defeats the gateway response cache across --repeat samples)")
+    ap.add_argument("--fake", default="",
+                    help="URL of a fake_subagents.py server: tasks with a `fake` script run against it")
     args = ap.parse_args()
-    global ANSWER_ASKS, NONCE
+    global ANSWER_ASKS, NONCE, FAKE_URL
     ANSWER_ASKS = args.answer_asks
     NONCE = args.nonce
+    FAKE_URL = args.fake
 
     with open(args.tasks) as f:
         catalog = json.load(f)["tasks"]
@@ -474,6 +541,15 @@ def main():
     else:
         sys.exit("choose --suite or --task <id>  (list: "
                  + ", ".join(t["id"] for t in catalog) + ")")
+
+    scripted = [t["id"] for t in sel if "fake" in t]
+    if scripted and not FAKE_URL:
+        sys.exit(f"task '{scripted[0]}' has a fake script: pass --fake <url>")
+    if FAKE_URL:
+        try:   # fail now, not after the first session, when the server is down
+            fake_end(FAKE_URL)
+        except FakeError as e:
+            sys.exit(str(e))
 
     # all agent names across all squads => used to classify a leader tool_call as a delegation
     squads = api("GET", args.server, "/api/squads", args.token)
