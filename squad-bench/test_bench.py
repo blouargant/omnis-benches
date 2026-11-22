@@ -859,6 +859,80 @@ class TestFetchAnomalyVolumeFloor(unittest.TestCase):
         self.assertNotIn("fetches=", erroring["degraded_reason"])
 
 
+class TestFakeBench(unittest.TestCase):
+    def setUp(self):
+        import fake_subagents
+        import threading
+        self.srv = fake_subagents.serve(0)
+        self.url = "http://127.0.0.1:%d" % self.srv.server_address[1]
+        threading.Thread(target=self.srv.serve_forever, args=(0.01,), daemon=True).start()
+        self.addCleanup(self.srv.server_close)
+        self.addCleanup(self.srv.shutdown)
+
+    def chat(self, text):
+        import urllib.request
+        body = json.dumps({"model": "fake-investigator",
+                           "messages": [{"role": "user", "content": text}]}).encode()
+        req = urllib.request.Request(self.url + "/v1/chat/completions", data=body,
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.loads(r.read())["choices"][0]["message"]["content"]
+
+    def test_begin_and_end_round_trip(self):
+        bench.fake_begin(self.url, {"id": "t", "fake": {"investigator": [{"reply": "r", "delay_ms": 0}]}})
+        self.assertEqual(self.chat("why"), "r")
+        calls = bench.fake_end(self.url)
+        self.assertEqual([(c["agent"], c["request"]) for c in calls], [("investigator", "why")])
+
+    def test_begin_resets_the_log_for_the_next_sample(self):
+        task = {"id": "t", "fake": {"investigator": [{"reply": "r", "delay_ms": 0}]}}
+        bench.fake_begin(self.url, task)
+        self.chat("why")
+        bench.fake_begin(self.url, task)
+        self.assertEqual(bench.fake_end(self.url), [])
+
+    def test_begin_names_the_url_when_the_server_is_down(self):
+        with self.assertRaises(SystemExit) as cm:
+            bench.fake_begin("http://127.0.0.1:9", {"id": "t", "fake": {}})
+        self.assertIn("127.0.0.1:9", str(cm.exception))
+
+    def test_begin_refuses_a_bad_script(self):
+        with self.assertRaises(SystemExit) as cm:
+            bench.fake_begin(self.url, {"id": "t", "fake": []})
+        self.assertIn("script", str(cm.exception))
+
+    def run_main(self, argv, tasks):
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            json.dump({"tasks": tasks}, f)
+        self.addCleanup(os.unlink, f.name)
+        boom = mock.Mock(side_effect=AssertionError("the omnis server must not be called"))
+        with mock.patch.object(sys, "argv", ["bench.py", "--tasks", f.name] + argv), \
+                mock.patch.object(bench, "api", boom), mock.patch.object(bench, "FAKE_URL", ""):
+            bench.main()
+
+    def test_fake_task_without_the_flag_exits(self):
+        with self.assertRaises(SystemExit) as cm:
+            self.run_main(["--suite"], [{"id": "lf", "squad": "system", "prompt": "p", "fake": {}}])
+        self.assertIn("--fake", str(cm.exception))
+        self.assertIn("lf", str(cm.exception))
+
+    def test_unreachable_fake_server_exits_before_any_task(self):
+        with self.assertRaises(SystemExit) as cm:
+            self.run_main(["--suite", "--fake", "http://127.0.0.1:9"],
+                          [{"id": "lf", "squad": "system", "prompt": "p", "fake": {}}])
+        self.assertIn("127.0.0.1:9", str(cm.exception))
+
+    def test_record_gets_the_fake_summary_and_gate(self):
+        m = {"task": "t"}
+        task = {"id": "t", "fake": {"investigator": [{"reply": "r", "delay_ms": 0}]},
+                "expect_fake": {"agents": {"investigator": {"min_calls": 2}}}}
+        bench.fake_begin(self.url, task)
+        self.chat("why")
+        bench.fake_record(self.url, task, m)
+        self.assertEqual(m["fake"]["calls"], {"investigator": 1})
+        self.assertEqual((m["fake_gate"], m["fake_failed"]), (False, ["investigator.min_calls"]))
+
+
 FAKE_CALLS = [
     {"agent": "investigator", "n": 1, "request": "Why did it fail", "rule": 0, "started_ms": 0, "ended_ms": 300},
     {"agent": "investigator", "n": 2, "request": "why  did it fail", "rule": 0, "started_ms": 100, "ended_ms": 400},
