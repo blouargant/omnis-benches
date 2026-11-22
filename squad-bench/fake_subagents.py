@@ -14,9 +14,12 @@ scoring.match_rule), `times` (uses allowed), `if_new_request` (only for a
 request that agent has not sent before in this task), `delay_ms` (default
 300). The first usable rule wins; with none the reply is "No evidence found.".
 """
+import json
 import os
 import sys
 import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -100,3 +103,112 @@ class Scenario:
         status = r.get("status") if isinstance(r.get("status"), int) else None
         return {"reply": None if status else r.get("reply"), "status": status,
                 "delay_ms": r.get("delay_ms", DEFAULT_DELAY_MS), "rule": picked}
+
+
+# ----------------------------------------------------------------------------- server
+USAGE = {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+
+
+class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.0"
+
+    def log_message(self, *a):
+        pass
+
+    def send_json(self, obj, status=200):
+        b = json.dumps(obj).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+
+    def read_json(self):
+        try:
+            return json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+        except ValueError:
+            return None
+
+    def do_GET(self):
+        s = self.server
+        if self.path.rstrip("/").endswith("/calls"):
+            with s.lock:
+                self.send_json({"task": s.scenario.task, "calls": list(s.calls)})
+        else:  # /v1/models
+            self.send_json({"data": []})
+
+    def do_POST(self):
+        body = self.read_json()
+        if not isinstance(body, dict):
+            return self.send_json({"error": "body must be a JSON object"}, 400)
+        if self.path.rstrip("/").endswith("/scenario"):
+            return self.set_scenario(body)
+        if self.path.rstrip("/").endswith("/chat/completions"):
+            return self.chat(body)
+        self.send_json({"error": "unknown path " + self.path}, 404)
+
+    def set_scenario(self, body):
+        err = validate_script(body.get("script"))
+        if err:
+            return self.send_json({"error": err}, 400)
+        s = self.server
+        with s.lock:
+            s.scenario = Scenario(str(body.get("task") or ""), body["script"])
+            s.calls = []
+            s.t0 = time.monotonic()
+        self.send_json({"ok": True})
+
+    def chat(self, body):
+        s = self.server
+        agent = agent_of(body.get("model"))
+        request = request_text(body.get("messages"))
+        with s.lock:
+            scenario, calls, t0 = s.scenario, s.calls, s.t0
+            entry = {"agent": agent, "n": 1 + sum(1 for c in calls if c["agent"] == agent),
+                     "request": request, "rule": None,
+                     "started_ms": int((time.monotonic() - t0) * 1000), "ended_ms": None}
+            calls.append(entry)
+        a = scenario.answer(agent, request)
+        time.sleep(max(0, a["delay_ms"]) / 1000)
+        with s.lock:
+            entry["rule"] = a["rule"]
+            entry["ended_ms"] = int((time.monotonic() - t0) * 1000)
+        if a["status"]:
+            return self.send_json({"error": {"message": "scripted failure"}}, a["status"])
+        msg = {"role": "assistant", "content": a["reply"]}
+        model = body.get("model") or ""
+        if not body.get("stream"):
+            return self.send_json({"id": "fake", "object": "chat.completion", "model": model,
+                                   "choices": [{"index": 0, "message": msg, "finish_reason": "stop"}],
+                                   "usage": USAGE})
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        for chunk in ({"choices": [{"index": 0, "delta": msg}]},
+                      {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}], "usage": USAGE}):
+            self.wfile.write(b"data: " + json.dumps(chunk).encode() + b"\n\n")
+        self.wfile.write(b"data: [DONE]\n\n")
+        self.wfile.flush()
+
+
+def serve(port):
+    """The server, bound to 127.0.0.1 (port 0 picks a free one); call serve_forever()."""
+    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    srv.daemon_threads = True
+    srv.lock = threading.Lock()
+    srv.scenario = Scenario("", {})
+    srv.calls = []
+    srv.t0 = time.monotonic()
+    return srv
+
+
+def main():
+    if len(sys.argv) != 2:
+        sys.exit(__doc__)
+    srv = serve(int(sys.argv[1]))
+    print(f"fake sub-agents on http://127.0.0.1:{srv.server_address[1]}", flush=True)
+    srv.serve_forever()
+
+
+if __name__ == "__main__":
+    main()
