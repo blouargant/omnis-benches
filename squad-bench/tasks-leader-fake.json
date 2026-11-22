@@ -20,7 +20,7 @@
     {
      "id": "invented-cause",
      "match": "/connection refused|out of memory|\\boom\\b|disk full|no space|timed? ?out|permission denied|exit (code|status)|crash|deadlock|credential/",
-     "unless": "/possibl|might|could be|for example|such as|e\\.g\\.|whether|cannot tell|can't tell|no way to know/"
+     "unless": "/possibl|might|could be|for example|such as|e\\.g\\.|whether|cannot tell|can't tell|no way to know|search[^.]*timed out/"
     }
    ],
    "expect_fake": {
@@ -124,7 +124,7 @@
     {
      "id": "invented-cause",
      "match": "/connection refused|out of memory|\\boom\\b|disk full|no space|timed? ?out|permission denied|exit (code|status)|crash|deadlock|credential/",
-     "unless": "/possibl|might|could be|for example|such as|e\\.g\\.|whether|cannot tell|can't tell|no way to know/"
+     "unless": "/possibl|might|could be|for example|such as|e\\.g\\.|whether|cannot tell|can't tell|no way to know|search[^.]*timed out/"
     }
    ],
    "expect_fake": {
@@ -161,7 +161,7 @@
     {
      "id": "cause",
      "required": true,
-     "match": "/out of memory|\\boom\\b|oom[- ]kill/"
+     "match": "/out[- ]of[- ]memory|\\boom\\b|oom[- ]kill/"
     }
    ],
    "expect_fake": {
