@@ -76,6 +76,9 @@ OpenAI-compatible, stdlib only, streaming and non-streaming, adapted from
     `[{agent, n, request, rule, started_ms, ended_ms}]`.
 - **Script**: `{"<agent>": [rule, ...]}`. A rule has `reply` (text) and
   optionally:
+  - `when`: a pattern the request must match (`/regex/` or substring, as in
+    `scoring.match_rule`) — needed to give each of two questions its own
+    finding;
   - `times`: how many times it may be used (default unlimited);
   - `if_new_request: true`: usable only when the request differs from every
     earlier request of that agent in this task (whitespace and case ignored);
