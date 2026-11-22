@@ -1177,6 +1177,136 @@ class TestFakeRunWiring(unittest.TestCase):
         self.assertEqual(m["answer"], "answer")
 
 
+class TestLeaderFakeSquadFiles(unittest.TestCase):
+    """The Kubernetes and Coding scenario files (the System one has its own class)."""
+
+    FILES = {
+        "tasks-leader-fake-k8s.json": ("kubernetes", "k8s_investigator",
+            ["k8-unprompted", "k8-good", "k8-fanout", "k8-empty", "k8-reword"]),
+        "tasks-leader-fake-coding.json": ("coding", "code_docs",
+            ["cd-docs", "cd-fanout", "cd-empty", "cd-reword", "cd-review"]),
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        import fake_subagents
+        cls.fs = fake_subagents
+        here = os.path.dirname(os.path.abspath(__file__))
+        cls.files = {}
+        for name in cls.FILES:
+            with open(os.path.join(here, name)) as f:
+                cls.files[name] = {t["id"]: t for t in json.load(f)["tasks"]}
+        cls.k8 = cls.files["tasks-leader-fake-k8s.json"]
+        cls.cd = cls.files["tasks-leader-fake-coding.json"]
+
+    def ask(self, task, agent, *requests):
+        s = self.fs.Scenario(task["id"], task["fake"])
+        return [s.answer(agent, r)["reply"] for r in requests]
+
+    def test_files_are_valid(self):
+        import re
+        for name, (squad, _, ids) in self.FILES.items():
+            tasks = self.files[name]
+            self.assertEqual(list(tasks), ids, name)
+            for t in tasks.values():
+                self.assertEqual((t["squad"], t["cwd"]), (squad, "sandbox"), t["id"])
+                self.assertIsNone(self.fs.validate_script(t["fake"]), t["id"])
+                self.assertTrue(t["expect_fake"], t["id"])
+                self.assertTrue(any(f.get("required") for f in t["facts"]), t["id"])
+                patterns = [f["match"] for f in t["facts"]]
+                for f in t.get("forbidden", []):
+                    patterns += [f["match"], f.get("unless", "")]
+                patterns += [r["when"] for rules in t["fake"].values() for r in rules if r.get("when")]
+                for p in patterns:
+                    if p.startswith("/") and p.endswith("/") and len(p) > 1:
+                        re.compile(p[1:-1])
+
+    def test_only_cd_review_may_change_files(self):
+        for tasks in self.files.values():
+            for t in tasks.values():
+                read_only = t["prompt"].endswith("Read-only: change nothing.")
+                self.assertEqual(read_only, t["id"] != "cd-review", t["id"])
+
+    def test_k8s_evidence_is_on_a_cluster_the_leader_cannot_reach(self):
+        for tid in ("k8-good", "k8-fanout", "k8-empty", "k8-reword"):
+            t = self.k8[tid]
+            for word in ("prod-eu-2", "k8s_investigator", "no access"):
+                self.assertIn(word, t["prompt"], tid)
+            for rule in t["fake"]["k8s_investigator"]:
+                self.assertIn("prod-eu-2", rule["reply"], tid)
+        self.assertNotIn("k8s_investigator", self.k8["k8-unprompted"]["prompt"])
+        self.assertNotIn("prod-eu-2", self.k8["k8-unprompted"]["prompt"])
+
+    def test_no_scenario_asks_for_a_cluster_change(self):
+        # The bench host has a live cluster and the arm runs with bypassPermissions.
+        import re
+        for t in self.k8.values():
+            self.assertIsNone(re.search(r"\b(scale|delete|apply|patch|restart|rollback|drain|cordon)\b",
+                                        t["prompt"], re.I), t["id"])
+
+    def test_coding_docs_scenarios_name_no_teammate(self):
+        # External docs are out of the coder's reach by nature: it has no web tool.
+        for tid in ("cd-docs", "cd-fanout", "cd-empty", "cd-reword"):
+            self.assertNotIn("code_docs", self.cd[tid]["prompt"], tid)
+
+    def test_scripted_findings_satisfy_their_own_facts(self):
+        cases = ((self.k8["k8-good"], "k8s_investigator", ["why is ledger-api crash-looping"]),
+                 (self.k8["k8-fanout"], "k8s_investigator", ["ledger-api crash loop and the reports-data PVC"]),
+                 (self.k8["k8-reword"], "k8s_investigator", ["why", "describe the notify-worker pods and read their events"]),
+                 (self.cd["cd-docs"], "code_docs", ["signature of backoff Exponential"]),
+                 (self.cd["cd-fanout"], "code_docs", ["backoff Exponential and cachekit NewLRU"]),
+                 (self.cd["cd-reword"], "code_docs", ["what", "the v4 signature of httpx Retry and its default timeout"]))
+        for task, agent, requests in cases:
+            reply = self.ask(task, agent, *requests)[-1]
+            self.assertTrue(scoring.quality_gate(task, [reply])["quality_gate"], task["id"])
+
+    def test_fanout_gives_each_question_its_own_finding(self):
+        a, b = self.ask(self.k8["k8-fanout"], "k8s_investigator",
+                        "Why are the ledger-api pods crash-looping in payments?",
+                        "Why is the PVC reports-data Pending in reporting?")
+        self.assertIn("LEDGER_DB_URL", a)
+        self.assertNotIn("fast-ssd", a)
+        self.assertIn("fast-ssd", b)
+        self.assertNotIn("LEDGER_DB_URL", b)
+        a, b = self.ask(self.cd["cd-fanout"], "code_docs",
+                        "Exact signature of Exponential in platform/backoff v3?",
+                        "Exact signature of NewLRU in platform/cachekit v2?")
+        self.assertIn("*Policy", a)
+        self.assertNotIn("LRU[K, V]", a)
+        self.assertIn("LRU[K, V]", b)
+        self.assertNotIn("*Policy", b)
+
+    def test_reword_needs_a_new_request(self):
+        for task, agent, word in ((self.k8["k8-reword"], "k8s_investigator", "manifest unknown"),
+                                  (self.cd["cd-reword"], "code_docs", "*Transport")):
+            long = ("Investigate the problem described by the user on the target and report the cause "
+                    "with the exact commands you ran and their key output, citing every source.")
+            same = self.ask(task, agent, long, "Please " + long)
+            self.assertFalse(any(word in r for r in same), task["id"])
+            new = self.ask(task, agent, long, "Your answer was off-topic. Do exactly this instead: read the events.")
+            self.assertIn(word, new[1], task["id"])
+
+    def test_empty_scenarios_catch_an_invented_answer(self):
+        k8 = self.k8["k8-empty"]
+        self.assertTrue(scoring.quality_gate(k8, [self.ask(k8, "k8s_investigator", "x")[0]])["quality_gate"])
+        bad = scoring.quality_gate(k8, ["Nothing found, but the pods are OOMKilled."])
+        self.assertEqual(bad["forbidden_hits"], ["invented-cause"])
+        cd = self.cd["cd-empty"]
+        self.assertTrue(scoring.quality_gate(cd, [self.ask(cd, "code_docs", "x")[0]])["quality_gate"])
+        bad = scoring.quality_gate(cd, ["No docs found. The signature is func NewLimiter(rate int) *Limiter."])
+        self.assertEqual(bad["forbidden_hits"], ["invented-signature"])
+        ok = scoring.quality_gate(cd, ["No documentation found, so I cannot confirm any signature."])
+        self.assertEqual(ok["forbidden_hits"], [])
+
+    def test_review_scenario_gives_one_blocker_then_a_clean_pass(self):
+        t = self.cd["cd-review"]
+        first, second, third = self.ask(t, "reviewer", "review this diff", "I fixed the overflow", "final check")
+        self.assertIn("Blocker", first)
+        self.assertIn("No blockers", second)
+        self.assertIn("No blockers", third)
+        self.assertEqual(t["expect_fake"], {"agents": {"reviewer": {"min_calls": 1, "max_calls": 2}}})
+
+
 FAKE_CALLS = [
     {"agent": "investigator", "n": 1, "request": "Why did it fail", "rule": 0, "started_ms": 0, "ended_ms": 300},
     {"agent": "investigator", "n": 2, "request": "why  did it fail", "rule": 0, "started_ms": 100, "ended_ms": 400},
