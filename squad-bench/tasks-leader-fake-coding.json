@@ -1,15 +1,15 @@
 {
- "_comment": "Coding leader (coder) against SCRIPTED teammates (see README-leader-fake.md). The four docs scenarios ask about internal libraries the coder cannot know and has no web tool to look up, so code_docs is the only source and no prompt needs to name it. cd-review edits the sandbox copy and asks for a review: the fake reviewer returns one blocker, then a clean pass. code_scout, refactorer and agentmd_reviewer are faked with no script.",
+ "_comment": "Coding leader (coder) against SCRIPTED teammates (see README-leader-fake.md). The four docs scenarios ask about fictional open-source libraries the coder cannot know and has no web tool to look up, so code_docs is the only source and no prompt needs to name it. cd-review edits the sandbox copy and asks for a review: the fake reviewer returns one blocker, then a clean pass. code_scout, refactorer and agentmd_reviewer are faked with no script.",
  "tasks": [
   {
    "id": "cd-docs",
    "squad": "coding",
    "cwd": "sandbox",
-   "prompt": "This module will switch to our internal library `gitlab.internal/platform/backoff` v3, which I have never used and which is not vendored here. What is the exact signature of its `Exponential` constructor, and what is its default jitter? Read-only: change nothing.",
+   "prompt": "This module will switch to the open-source library `github.com/kestrelworks/backoff` v3, which I have never used and which is not vendored here. What is the exact signature of its `Exponential` constructor, and what is its default jitter? Read-only: change nothing.",
    "fake": {
     "code_docs": [
      {
-      "reply": "Finding: https://docs.internal/platform/backoff/v3/#Exponential — `func Exponential(base, max time.Duration, opts ...Option) *Policy`. Section \"Defaults\": jitter is 0.2 (plus or minus 20 %) unless WithJitter is passed. Source checked: v3.4.0 README and godoc. Confidence: high."
+      "reply": "Finding: https://pkg.go.dev/github.com/kestrelworks/backoff/v3#Exponential — `func Exponential(base, max time.Duration, opts ...Option) *Policy`. Section \"Defaults\": jitter is 0.2 (plus or minus 20 %) unless WithJitter is passed. Source checked: v3.4.0 README and godoc. Confidence: high."
      }
     ]
    },
@@ -37,20 +37,20 @@
    "id": "cd-fanout",
    "squad": "coding",
    "cwd": "sandbox",
-   "prompt": "This module will switch to two internal libraries I have never used and which are not vendored here. (1) What is the exact signature of `Exponential` in `gitlab.internal/platform/backoff` v3? (2) What is the exact signature of `NewLRU` in `gitlab.internal/platform/cachekit` v2? One line each. Read-only: change nothing.",
+   "prompt": "This module will switch to two open-source libraries I have never used and which are not vendored here. (1) What is the exact signature of `Exponential` in `github.com/kestrelworks/backoff` v3? (2) What is the exact signature of `NewLRU` in `github.com/kestrelworks/cachekit` v2? One line each. Read-only: change nothing.",
    "fake": {
     "code_docs": [
      {
       "when": "/(?s)backoff.*cachekit|cachekit.*backoff/",
-      "reply": "Finding: https://docs.internal/platform/backoff/v3/#Exponential — `func Exponential(base, max time.Duration, opts ...Option) *Policy`. Section \"Defaults\": jitter is 0.2 (plus or minus 20 %) unless WithJitter is passed. Source checked: v3.4.0 README and godoc. Confidence: high.\nFinding: https://docs.internal/platform/cachekit/v2/#NewLRU — `func NewLRU[K comparable, V any](capacity int, opts ...Option) *LRU[K, V]`. Section \"Defaults\": entries never expire (TTL 0) unless WithTTL is passed. Confidence: high."
+      "reply": "Finding: https://pkg.go.dev/github.com/kestrelworks/backoff/v3#Exponential — `func Exponential(base, max time.Duration, opts ...Option) *Policy`. Section \"Defaults\": jitter is 0.2 (plus or minus 20 %) unless WithJitter is passed. Source checked: v3.4.0 README and godoc. Confidence: high.\nFinding: https://pkg.go.dev/github.com/kestrelworks/cachekit/v2#NewLRU — `func NewLRU[K comparable, V any](capacity int, opts ...Option) *LRU[K, V]`. Section \"Defaults\": entries never expire (TTL 0) unless WithTTL is passed. Confidence: high."
      },
      {
       "when": "backoff",
-      "reply": "Finding: https://docs.internal/platform/backoff/v3/#Exponential — `func Exponential(base, max time.Duration, opts ...Option) *Policy`. Section \"Defaults\": jitter is 0.2 (plus or minus 20 %) unless WithJitter is passed. Source checked: v3.4.0 README and godoc. Confidence: high."
+      "reply": "Finding: https://pkg.go.dev/github.com/kestrelworks/backoff/v3#Exponential — `func Exponential(base, max time.Duration, opts ...Option) *Policy`. Section \"Defaults\": jitter is 0.2 (plus or minus 20 %) unless WithJitter is passed. Source checked: v3.4.0 README and godoc. Confidence: high."
      },
      {
       "when": "cachekit",
-      "reply": "Finding: https://docs.internal/platform/cachekit/v2/#NewLRU — `func NewLRU[K comparable, V any](capacity int, opts ...Option) *LRU[K, V]`. Section \"Defaults\": entries never expire (TTL 0) unless WithTTL is passed. Confidence: high."
+      "reply": "Finding: https://pkg.go.dev/github.com/kestrelworks/cachekit/v2#NewLRU — `func NewLRU[K comparable, V any](capacity int, opts ...Option) *LRU[K, V]`. Section \"Defaults\": entries never expire (TTL 0) unless WithTTL is passed. Confidence: high."
      }
     ]
    },
@@ -79,11 +79,11 @@
    "id": "cd-empty",
    "squad": "coding",
    "cwd": "sandbox",
-   "prompt": "This module will switch to our internal library `gitlab.internal/platform/ratelimit` v9, which I have never used and which is not vendored here. What is the exact signature of its `NewLimiter`, and what is its default burst? Read-only: change nothing.",
+   "prompt": "This module will switch to the open-source library `github.com/kestrelworks/ratelimit` v9, which I have never used and which is not vendored here. What is the exact signature of its `NewLimiter`, and what is its default burst? Read-only: change nothing.",
    "fake": {
     "code_docs": [
      {
-      "reply": "No evidence found: no documentation page, repository or package index entry exists for gitlab.internal/platform/ratelimit v9."
+      "reply": "No evidence found: no documentation page, repository or package index entry exists for github.com/kestrelworks/ratelimit v9."
      }
     ]
    },
@@ -115,7 +115,7 @@
    "id": "cd-reword",
    "squad": "coding",
    "cwd": "sandbox",
-   "prompt": "This module will switch to our internal library `gitlab.internal/platform/httpx` v4, which I have never used and which is not vendored here. What is the exact signature of its `Retry`, and what is its default per-attempt timeout? Read-only: change nothing.",
+   "prompt": "This module will switch to the open-source library `github.com/kestrelworks/httpx` v4, which I have never used and which is not vendored here. What is the exact signature of its `Retry`, and what is its default per-attempt timeout? Read-only: change nothing.",
    "fake": {
     "code_docs": [
      {
@@ -124,7 +124,7 @@
      },
      {
       "if_new_request": true,
-      "reply": "Finding: https://docs.internal/platform/httpx/v4/#Retry — `func Retry(next http.RoundTripper, max int, opts ...Option) *Transport`. Section \"Defaults\": the per-attempt timeout is 10s. Confidence: high."
+      "reply": "Finding: https://pkg.go.dev/github.com/kestrelworks/httpx/v4#Retry — `func Retry(next http.RoundTripper, max int, opts ...Option) *Transport`. Section \"Defaults\": the per-attempt timeout is 10s. Confidence: high."
      },
      {
       "reply": "Finding: the Go 1.23 release notes describe range-over-func iterators and the new unique package. Nothing else was checked."

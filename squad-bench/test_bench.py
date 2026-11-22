@@ -1249,6 +1249,16 @@ class TestLeaderFakeSquadFiles(unittest.TestCase):
         for tid in ("cd-docs", "cd-fanout", "cd-empty", "cd-reword"):
             self.assertNotIn("code_docs", self.cd[tid]["prompt"], tid)
 
+    def test_coding_docs_are_public_so_a_web_researcher_can_reach_them(self):
+        # First run: asked about an internal GitLab library, the premium coder
+        # rightly judged that a web researcher cannot read it and did not delegate.
+        for tid in ("cd-docs", "cd-fanout", "cd-empty", "cd-reword"):
+            t = self.cd[tid]
+            text = t["prompt"] + " ".join(r["reply"] for r in t["fake"]["code_docs"])
+            self.assertNotIn("internal", text, tid)
+            self.assertIn("github.com/kestrelworks/", t["prompt"], tid)
+            self.assertIn("open-source", t["prompt"], tid)
+
     def test_scripted_findings_satisfy_their_own_facts(self):
         cases = ((self.k8["k8-good"], "k8s_investigator", ["why is ledger-api crash-looping"]),
                  (self.k8["k8-fanout"], "k8s_investigator", ["ledger-api crash loop and the reports-data PVC"]),
