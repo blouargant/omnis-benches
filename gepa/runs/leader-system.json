@@ -6,6 +6,6 @@
  "repeat_search": 2,
  "repeat_heldout": 5,
  "workers": 2,
- "max_metric_calls": 150,
+ "max_metric_calls": 400,
  "ceiling_usd": 60
 }
