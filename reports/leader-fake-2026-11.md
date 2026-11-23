@@ -130,6 +130,48 @@ elsewhere in omnis for the same model: a short reminder placed next to the user
 message (collection memory), and a rule delivered through a skill the agent
 loads (Kubernetes). Either can be measured with this bench at about $0.30 a run.
 
+## Fourth run — delegation reminder next to the user message (2026-11-23)
+
+omnis branch `feat/turn-reminder` (`2d7a6d1`, from `develop` `db28817`: the
+**old** leader instruction, unchanged). A new `agent.json` key, `turn_reminder`,
+is appended to every typed user message of a squad root, as the memory reminder
+is. On `leader`:
+
+> [Delegation — before you act: a question that needs evidence from the machine
+> (logs, files, processes, configuration, a remote host) goes to the
+> 'investigator' sub-agent first, not to your own Bash, Read, Grep or Glob. Two
+> independent questions = two 'investigator' calls in the same response. If a
+> call comes back empty or off-topic, re-task it once with different guidance,
+> then stop and say what is unverified.]
+
+Records: `leader-fake-2026-11-v4-{balanced,premium}.jsonl`. `balanced` 5
+samples, `premium` 3. Cost: **$0.64** for 40 runs.
+
+| Scenario | balanced, third run (instruction) | balanced, reminder | premium, third run | premium, reminder |
+|---|---|---|---|---|
+| `lf-unprompted`: delegated | 0/5 | **5/5** | 3/3 | 3/3 |
+| `lf-fanout`: calls, in parallel | 1 each, 0/5 | **2 each, 5/5** | 2 each, 3/3 | 2 each, 3/3 |
+| `lf-empty`: calls | 4, 4, 4, 4, 5 | **3, 3, 3, 3, 2** | 2, 2, 2 | 2, 2, 2 |
+| `lf-good`: calls | 1, 1, 1, 1, 2 | 1, 1, 2, 1, 1 | 1, 1, 1 | 1, 1, 1 |
+| `lf-reword`: calls | 2, 2, 2, 3, 3 | 2, 2, 3, 2, 2 | 2, 2, 2 | 2, 2, 2 |
+
+- **The reminder reaches `balanced` where the instruction did not.** Unprompted
+  delegation 0/20 (all earlier runs) → 5/5; two independent questions now give
+  two calls in the same response, 5/5; one call fewer on empty evidence.
+  Answers pass the content checks 25/25; 24 of 25 runs pass the call gates (one
+  `lf-good` run asked twice).
+- **`balanced` delegates and also works itself.** In `lf-unprompted` every run
+  made 4 to 10 `Bash` calls besides its single `investigator` call. "First" is
+  followed; "not your own Bash" is not.
+- **Empty evidence on `balanced`: 3 calls, not the 2 the reminder states**
+  (4 of 5 runs).
+- **`premium` is unchanged**, 15/15. In `lf-unprompted` it now asks the
+  investigator twice (one re-task) before checking itself with 2-3 `Bash` calls,
+  where it asked once before: the cost of "re-task it once".
+- Five samples on one squad and one wording. Not measured: whether the reminder
+  makes the leader delegate what it should do itself (a one-line answer, a file
+  edit), and the Kubernetes and Coding leaders, which have no reminder.
+
 ## First run — evidence absent from the host
 
 Records: `leader-fake-2026-11-balanced.jsonl`, `leader-fake-2026-11-premium.jsonl`.
