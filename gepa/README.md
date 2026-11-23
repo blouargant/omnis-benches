@@ -35,7 +35,7 @@ plan: `docs/superpowers/plans/2026-11-23-gepa-optimizer.md`.
 | `instruction:<agent>` | `registry/agents/<agent>/instruction.md` |
 | `turn_reminder:<agent>` | `turn_reminder` of that agent's `agent.json` |
 | `skill:<name>` | body of `registry/skills/<name>/SKILL.md` |
-| `prompt:<id>` | refused until omnis has `prompt_overrides.json` (spec part 1) |
+| `prompt:<id>` | omnis `prompt_overrides.json` (an omnis ref with `GET /api/prompts`); seed and reach come from that route, read from a throwaway server at `prepare`; the report shows the text diff and the patch leaves it out (the defaults live in Go) |
 
 Every agent a component reaches needs an entry in `suites.json` with a
 held-out set (or be listed in the run's `heldout_ok_missing`); otherwise the

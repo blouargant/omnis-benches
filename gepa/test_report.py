@@ -48,3 +48,8 @@ def test_patch_applies_with_git_for_two_components(tmp_path):
     r = subprocess.run(["git", "apply", "--check", str(tmp_path / "p.diff")], cwd=src,
                        capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
+
+
+def test_patch_skips_prompt_components(tmp_path):
+    from gepa_omnis import report as R
+    assert R.patch(tmp_path, {"prompt:block.choice": "a"}, {"prompt:block.choice": "b"}) == ""

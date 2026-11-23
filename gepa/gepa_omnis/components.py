@@ -4,14 +4,25 @@ A component name is `<kind>:<target>`:
   instruction:<agent>    registry/agents/<agent>/instruction.md
   turn_reminder:<agent>  `turn_reminder` in registry/agents/<agent>/agent.json
   skill:<name>           body of registry/skills/<name>/SKILL.md (front matter kept)
-  prompt:<id>            omnis prompt_overrides.json (needs omnis spec part 1)
+  prompt:<id>            an omnis shared text, by id, in prompt_overrides.json; its
+                         seed and the agents it reaches come from the server's
+                         GET /api/prompts catalogue
 """
 import json
 import shutil
 from pathlib import Path
 
 KINDS = ("instruction", "turn_reminder", "skill", "prompt")
-_NO_PROMPTS = "prompt components need omnis prompt_overrides (spec part 1)"
+PROMPTS_FILE = "prompt_overrides.json"
+
+
+def _catalogue_entry(prompts, pid):
+    if prompts is None:
+        raise ValueError(f"prompt:{pid} needs the server's /api/prompts catalogue")
+    for e in prompts:
+        if e.get("id") == pid:
+            return e
+    raise ValueError(f"prompt:{pid} is not in the server's /api/prompts catalogue")
 
 
 def parse(name):
@@ -38,7 +49,7 @@ def split_front_matter(text):
     return "", text
 
 
-def read_seed(omnis_src, names):
+def read_seed(omnis_src, names, prompts=None):
     seed = {}
     for name in names:
         kind, target = parse(name)
@@ -50,7 +61,8 @@ def read_seed(omnis_src, names):
         elif kind == "skill":
             seed[name] = split_front_matter(_skill_file(omnis_src, target).read_text(encoding="utf-8"))[1]
         else:
-            raise NotImplementedError(_NO_PROMPTS)
+            e = _catalogue_entry(prompts, target)
+            seed[name] = e.get("override") or e["default"]
     return seed
 
 
@@ -63,6 +75,8 @@ def apply_candidate(home, base_overlay, candidate, omnis_src=None):
         shutil.copytree(base / "registry", home / "registry")
     if (base / "models.json").is_file():
         shutil.copy2(base / "models.json", home / "models.json")
+    (home / PROMPTS_FILE).unlink(missing_ok=True)
+    prompts = {}
     for name, text in candidate.items():
         kind, target = parse(name)
         if kind == "instruction":
@@ -83,15 +97,18 @@ def apply_candidate(home, base_overlay, candidate, omnis_src=None):
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(front + text, encoding="utf-8")
         else:
-            raise NotImplementedError(_NO_PROMPTS)
+            prompts[target] = text
+    if prompts:
+        (home / PROMPTS_FILE).write_text(json.dumps({"prompts": prompts}, indent=1, ensure_ascii=False),
+                                         encoding="utf-8")
 
 
-def agents_reached(name, omnis_src):
+def agents_reached(name, omnis_src, prompts=None):
     kind, target = parse(name)
     if kind in ("instruction", "turn_reminder"):
         return {target}
     if kind == "prompt":
-        raise NotImplementedError(_NO_PROMPTS)
+        return set(_catalogue_entry(prompts, target).get("agents") or [])
     out = set()
     for aj in sorted((Path(omnis_src) / "registry" / "agents").glob("*/agent.json")):
         a = json.loads(aj.read_text(encoding="utf-8"))

@@ -68,3 +68,13 @@ def test_split_heldout_by_script():
     its = [Item("leader", "a.json", "s", {"fake": {}}), Item("leader", "b.json", "r", {})]
     scripted, real = optimize.split_heldout(its)
     assert [i.task_id for i in scripted] == ["s"] and [i.task_id for i in real] == ["r"]
+
+
+def test_prepare_takes_prompt_reach_from_catalogue(tmp_path):
+    cfg = tmp_path / "run.json"
+    cfg.write_text(json.dumps({"name": "p", "omnis_ref": "develop",
+                               "components": ["prompt:block.choice"], "models": ["balanced"]}))
+    cat = [{"id": "block.choice", "default": "Default rule.", "agents": ["leader"]}]
+    prep = optimize.prepare(optimize.load_config(cfg), prompts=cat)
+    assert prep["reach"] == {"prompt:block.choice": {"leader"}}
+    assert prep["seeds"] == {"prompt:block.choice": "Default rule."}

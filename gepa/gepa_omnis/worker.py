@@ -114,6 +114,13 @@ class Worker:
         self.start()
 
     # -- candidates and runs -------------------------------------------------------
+    def prompts(self):
+        """The server's overridable texts: [{id, default, override?, agents}]."""
+        code, body = _http("GET", self.url + "/api/prompts")
+        if code != 200:
+            raise RuntimeError(f"{self.label}: GET /api/prompts failed ({code})")
+        return body.get("prompts") or []
+
     def apply(self, candidate):
         components.apply_candidate(self.home, self.base, candidate, omnis_src=self.omnis_src)
         code, body = _http("POST", self.url + "/api/config/reload", {})
@@ -133,10 +140,18 @@ class Worker:
         for name, text in candidate.items():
             kind, target = components.parse(name)
             if kind not in ("instruction", "turn_reminder"):
-                continue        # skills are not served by this route
+                continue        # skills are not served by this route; prompts below
             got = (served.get(target) or {}).get(kind) or ""
             if got.strip() != text.strip():
                 raise ReloadError(f"{self.label}: {name} is not the text the server runs")
+        wanted = {components.parse(n)[1]: t for n, t in candidate.items()
+                  if components.parse(n)[0] == "prompt"}
+        if wanted:
+            served_prompts = {e.get("id"): e for e in self.prompts()}
+            for pid, text in wanted.items():
+                got = (served_prompts.get(pid) or {}).get("override") or ""
+                if got.strip() != text.strip():
+                    raise ReloadError(f"{self.label}: prompt:{pid} is not the text the server runs")
         self.generation = gen
         return gen
 

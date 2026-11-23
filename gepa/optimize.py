@@ -38,15 +38,30 @@ def load_config(path):
     return cfg
 
 
-def prepare(cfg):
+def _fetch_prompts(cfg):
+    """The /api/prompts catalogue of a throwaway server on the run's omnis ref,
+    on the real config (no fakes): it gives prompt:<id> seeds and their reach."""
+    from gepa_omnis.worker import Worker
+    w = Worker(90, HERE / "out" / cfg["name"] / "work", cfg["omnis_ref"], cfg["models"][0], [], [],
+               cfg["omnis_src"], port_base=cfg["port_base"])
+    try:
+        w.start()
+        return w.prompts()
+    finally:
+        w.stop()
+
+
+def prepare(cfg, prompts=None):
     src = Path(cfg["omnis_src"])
-    reach = {c: components.agents_reached(c, src) for c in cfg["components"]}
+    if prompts is None and any(components.parse(c)[0] == "prompt" for c in cfg["components"]):
+        prompts = _fetch_prompts(cfg)
+    reach = {c: components.agents_reached(c, src, prompts) for c in cfg["components"]}
     agents = set().union(*reach.values())
     try:
         suites.load(agents, cfg["heldout_ok_missing"])
     except suites.MissingSuites as e:
         raise SystemExit(f"refusing to run: {e}")
-    seeds = components.read_seed(src, cfg["components"])
+    seeds = components.read_seed(src, cfg["components"], prompts)
     split = {s: suites.items(agents, s) for s in suites.SPLITS}
     deny = guards.denylist([i for s in suites.SPLITS for i in split[s]], list(seeds.values()))
     keep = {c: guards.load_keep(c) for c in cfg["components"]}

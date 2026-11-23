@@ -40,8 +40,8 @@ def _diff_lines(old, new, a, b):
 def patch(omnis_src, seeds, best):
     out = []
     for name in sorted(best):
-        if best[name] == seeds.get(name):
-            continue
+        if best[name] == seeds.get(name) or components.parse(name)[0] == "prompt":
+            continue        # prompt:<id> texts live in Go: the report shows their diff
         rel, old, new = _file_texts(omnis_src, name, best[name])
         out += _diff_lines(old, new, f"a/{rel}", f"b/{rel}")
     return "".join(out)

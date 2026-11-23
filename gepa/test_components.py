@@ -48,9 +48,41 @@ def test_seed_reads_instruction_and_reminder(tmp_path):
     assert seed["skill:review"] == "# Review\nBody.\n"
 
 
-def test_prompt_component_not_implemented(tmp_path):
-    with pytest.raises(NotImplementedError):
-        C.read_seed(make_omnis(tmp_path), ["prompt:contract.root"])
+CATALOGUE = [
+    {"id": "block.choice", "default": "Default choice rule.", "agents": ["coder", "leader"]},
+    {"id": "contract.root", "default": "Default contract.", "override": "Served override.",
+     "agents": ["leader"]},
+]
+
+
+def test_seed_reads_prompt_from_catalogue(tmp_path):
+    seed = C.read_seed(make_omnis(tmp_path), ["prompt:block.choice", "prompt:contract.root"],
+                       prompts=CATALOGUE)
+    assert seed == {"prompt:block.choice": "Default choice rule.",
+                    "prompt:contract.root": "Served override."}
+
+
+def test_prompt_needs_catalogue(tmp_path):
+    src = make_omnis(tmp_path)
+    with pytest.raises(ValueError):
+        C.read_seed(src, ["prompt:block.choice"])
+    with pytest.raises(ValueError):
+        C.read_seed(src, ["prompt:block.nope"], prompts=CATALOGUE)
+
+
+def test_reach_prompt_from_catalogue(tmp_path):
+    assert C.agents_reached("prompt:block.choice", make_omnis(tmp_path), prompts=CATALOGUE) == {"coder", "leader"}
+
+
+def test_apply_writes_prompt_overrides(tmp_path):
+    home = tmp_path / "home"
+    base = make_base(tmp_path)
+    (home).mkdir()
+    (home / "prompt_overrides.json").write_text(json.dumps({"prompts": {"block.steering": "stale"}}))
+    C.apply_candidate(home, base, {"prompt:block.choice": "NEW CHOICE", "instruction:leader": "x"})
+    assert json.loads((home / "prompt_overrides.json").read_text()) == {"prompts": {"block.choice": "NEW CHOICE"}}
+    C.apply_candidate(home, base, {"instruction:leader": "x"})
+    assert not (home / "prompt_overrides.json").exists()
 
 
 def test_apply_merges_reminder_keeps_model_ref(tmp_path):

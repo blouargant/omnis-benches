@@ -14,6 +14,7 @@ class Stub:
 
     def __init__(self):
         self.reloads, self.warnings, self.agents, self.parsed_code = [], [], [], 200
+        self.prompts = []
         stub = self
 
         class H(BaseHTTPRequestHandler):
@@ -34,6 +35,9 @@ class Stub:
                 self._send(code, obj)
 
             def do_GET(self):
+                if self.path.startswith("/api/prompts"):
+                    self._send(200, {"prompts": stub.prompts})
+                    return
                 self._send(stub.parsed_code, {"warnings": stub.warnings,
                                               "data": {"agents": stub.agents}})
 
@@ -115,3 +119,21 @@ def test_run_parses_json_lines(tmp_path, stub):
     w = worker(tmp_path, stub, bench_cmd=[sys.executable, str(script)])
     recs = w.run(Item("leader", "f.json", "t9", {"id": "t9", "fake": {}}), 2)
     assert [r["task"] for r in recs] == ["t9", "t9"] and recs[1]["sample"] == 1
+
+
+def test_prompts_reads_catalogue(tmp_path, stub):
+    stub.prompts = [{"id": "block.choice", "default": "d", "agents": ["leader"]}]
+    assert worker(tmp_path, stub).prompts() == stub.prompts
+
+
+def test_apply_raises_when_prompt_override_not_served(tmp_path, stub):
+    stub.reloads.append((200, {"generation": 4}))
+    stub.prompts = [{"id": "block.choice", "default": "d", "agents": ["leader"]}]
+    with pytest.raises(ReloadError, match="prompt:block.choice"):
+        worker(tmp_path, stub).apply({"prompt:block.choice": "new"})
+
+
+def test_apply_accepts_served_prompt_override(tmp_path, stub):
+    stub.reloads.append((200, {"generation": 4}))
+    stub.prompts = [{"id": "block.choice", "default": "d", "override": "new\n", "agents": ["leader"]}]
+    assert worker(tmp_path, stub).apply({"prompt:block.choice": "new"}) == 4
