@@ -1,0 +1,6 @@
+# Rules of the System leader's per-message reminder that a rewrite must keep.
+A question needing evidence beyond one quick lookup goes to the investigator first, not to the leader's own shell or file tools.
+A single quick lookup the leader may do itself.
+Two independent questions are two investigator calls in the same response.
+When the investigator's answer is empty or off-topic, re-task it once with different guidance, and no more.
+Always end with a written answer to the user that says what is unverified.

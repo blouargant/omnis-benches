@@ -41,6 +41,7 @@ Keep the "Gotchas" section current — it encodes hard-won facts.
 | `model-probe/` | **Endpoint capability** probe: verifies a live OpenAI-compatible endpoint+model supports the features omnis uses (streamed chat, tool calling streaming+non-streaming, parameterless tools over streaming, tool-result round-trip, caching/usage/model-info). Exit≠0 iff a critical check fails. Has its own **`model-probe/CLAUDE.md`**. | `probe.py` |
 | `k8s-ai-bench/` | Adapter for the gke-labs **k8s-ai-bench** suite (Pass@k on real k8s tasks against ephemeral clusters), so omnis is scored comparably to other agents. | `omnis-agent` |
 | `harbor/` | **Harbor** adapter: omnis as a coding *harness* on Terminal-Bench 2.1 + DeepSWE v1.1, Harness Leaderboard method (pinned task commits + subsets, one model for every agent, k attempts). Variants `full` (shipped Coding squad) / `lean` (`coder` alone, `fs`+`tests`). | `run.sh` |
+| `gepa/` | **Prompt evolution** with GEPA: evolves an agent's instruction / `turn_reminder` / skills against the scripted squad-bench suites, guarded (protected rules, no scenario names, length cap), then decides on held-out tasks on every model and writes a report + a patch to apply by hand. | `optimize.py` |
 
 `model-probe` tests a *raw endpoint*; `squad-bench` tests *squad behaviour* once
 that endpoint is wired into omnis. Sister tools.
@@ -180,6 +181,8 @@ tools — keep them in sync if you change the protocol handling.
   imports Harbor (it is a Harbor plugin, loaded by `harbor run` in Harbor's own
   uv-tool env); everything else (`make_sysconf.py`, `usage.py`, `summarize.py`,
   tests) is stdlib.
+- `gepa/` is the second exception: it depends on `gepa==0.1.4` (`gepa/requirements.txt`,
+  installed in a `.venv`). Tests: `.venv/bin/python -m pytest gepa -q`. See `gepa/README.md`.
 - omnis is built from a pinned git ref with `git archive` (the omnis checkout is
   never modified) and configured ONLY through `OMNIS_SYSTEM_CONFIG_DIR` (never
   `OMNIS_CONFIG_PATH`). Tokens/cost come from omnis's own `-d` event log.

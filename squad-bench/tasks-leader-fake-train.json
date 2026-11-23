@@ -1,0 +1,792 @@
+{
+ "_comment": "GEPA TRAINING scenarios for the System leader (`leader`) against SCRIPTED sub-agents (fake_subagents.py; see README-leader-fake.md). Not a validation or held-out suite: tasks-leader-fake.json stays the validation set, tasks-leader-fake-direct.json and tasks-leader-real.json stay held out, and no host, file, service or scripted fact here appears in them. Evidence sits on hosts only the sub-agents can reach. An HTTP 5xx `status` rule is logged once per attempt (omnis tries 3 times), hence `times: 3` and the loose call bounds on lt-http-*. summariser and helper are faked with no script. Run with bench.py --fake <url>.",
+ "tasks": [
+  {
+   "id": "lt-good",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "The mail relay `mailgate` on host `relay-07` has rejected every inbound connection since this morning. You cannot reach relay-07 from this machine; only the investigator sub-agent can read its files. Its logs are under /var/log/mailgate/ on relay-07. Find out why and give me the cause in two sentences. Read-only: change nothing.",
+   "fake": {
+    "investigator": [
+     {
+      "reply": "Finding (on relay-07): /var/log/mailgate/smtpd.log:2291 — \"TLS handshake aborted: local certificate /etc/mailgate/tls/relay.pem has expired\"; the same line repeats for every connection after it (2291-3410). `openssl x509 -enddate` on that file confirms the certificate's notAfter is in the past. Confidence: high. No other error class in the file."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "cause",
+     "required": true,
+     "match": "/cert\\w*.{0,80}expir|expir.{0,80}cert/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "min_calls": 1,
+      "max_calls": 1
+     },
+     "linux_admin": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "lt-unprompted-remote",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "The `thumbnailer` daemon on host `media-14` keeps restarting. This machine has no route to media-14, but the sub-agents of this squad do. Find out why it restarts and give me the cause in two sentences. Read-only: change nothing.",
+   "fake": {
+    "investigator": [
+     {
+      "reply": "Finding (on media-14): `journalctl -u thumbnailer` shows 37 restarts; each ends with \"panic: runtime error: index out of range [4] with length 4\" followed by a goroutine trace whose top frame is resize.go:118 (func pickVariant). The panic always follows a request for a 5-frame animated WebP. Confidence: high."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "cause",
+     "required": true,
+     "match": "/index out of range|resize\\.go|pickVariant/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "min_calls": 1,
+      "max_calls": 2
+     },
+     "linux_admin": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "lt-unprompted-local-fr",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "Le service `metrics-shipper` de cette machine n'envoie plus rien depuis hier. Trouve pourquoi à partir de ses journaux dans /var/log/metrics-shipper/ et donne-moi la cause en deux phrases. Lecture seule : ne modifie rien.",
+   "fake": {
+    "investigator": []
+   },
+   "facts": [
+    {
+     "id": "says-unverified",
+     "required": true,
+     "match": "/no evidence|not found|(does|do|did)(n't| not) (exist|return|find|answer|respond)|no such|(could|can)(n't|not| not) (be )?(determin|verif|find|found|confirm|establish|tell|identif|reach|read|check|obtain|retriev)|unable to (determine|verify|find|confirm|establish|tell|identify|reach|read|check|obtain|retrieve)|unverified|not verified|unconfirmed|not confirmed|unknown|introuvable|aucun(e)? (preuve|trace|élément|résultat|information|donnée|journal|log|réponse|documentation)|n'existe pas|n'a (pas|rien) (pu|trouvé|renvoyé|donné|répondu|fourni)|n'ai (pas|rien) (pu|trouvé|obtenu)|impossible (de|d')|non (vérifi|confirm)|pas (pu|été) (être )?(vérifi|confirm|établi|détermin|trouv)|inconnu/"
+    }
+   ],
+   "forbidden": [
+    {
+     "id": "invented-cause",
+     "match": "/segfault|segmentation fault|core dump|certificate (has )?expired|quota exceeded|read-only file ?system|too many open files|address already in use|exit (code|status) \\d|killed by signal|deadlock/",
+     "unless": "/possibl|might|could be|may be|for example|such as|e\\.g\\.|whether|cannot tell|can't tell|no way to know|hypoth|peut-être|pourrait|par exemple|éventuel|search[^.]*timed out/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "min_calls": 1
+     }
+    }
+   }
+  },
+  {
+   "id": "lt-fanout-three",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "Three unrelated checks on the host `ingest-b4`. You cannot reach ingest-b4 from this machine; only the investigator sub-agent can read its files. (1) Why did the systemd timer `geoip-refresh` fail on its last run? (2) Which user owns the most data under /srv/scratch? (3) Which kernel release is the host running? One line each. Read-only: change nothing.",
+   "fake": {
+    "investigator": [
+     {
+      "when": "/(?s)geoip.*(scratch|kernel)|scratch.*(geoip|kernel)|kernel.*(geoip|scratch)/",
+      "reply": "Finding (on ingest-b4): `journalctl -u geoip-refresh.service` — \"curl: (22) The requested URL returned error: 402\" from the database vendor's download endpoint, then \"geoip-refresh.service: Main process exited, status=22\". Confidence: high.\nFinding (on ingest-b4): `du -s /srv/scratch/*` — user `tmoreau` holds 212 GB of 260 GB; next is `svc-etl` with 31 GB. Confidence: high.\nFinding (on ingest-b4): `uname -r` — 6.8.0-45-generic. Confidence: high."
+     },
+     {
+      "when": "geoip",
+      "reply": "Finding (on ingest-b4): `journalctl -u geoip-refresh.service` — \"curl: (22) The requested URL returned error: 402\" from the database vendor's download endpoint, then \"geoip-refresh.service: Main process exited, status=22\". Confidence: high."
+     },
+     {
+      "when": "scratch",
+      "reply": "Finding (on ingest-b4): `du -s /srv/scratch/*` — user `tmoreau` holds 212 GB of 260 GB; next is `svc-etl` with 31 GB. Confidence: high."
+     },
+     {
+      "when": "kernel",
+      "reply": "Finding (on ingest-b4): `uname -r` — 6.8.0-45-generic. Confidence: high."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "timer",
+     "required": true,
+     "match": "/\\b402\\b/"
+    },
+    {
+     "id": "owner",
+     "required": true,
+     "match": "/tmoreau/"
+    },
+    {
+     "id": "kernel",
+     "required": true,
+     "match": "/6\\.8\\.0-45/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "min_calls": 3
+     }
+    },
+    "min_parallel": 3
+   }
+  },
+  {
+   "id": "lt-fanout-two-hosts-fr",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "Même question sur deux machines : quelle version de `haproxy` tourne sur `pay-edge-1` et sur `pay-edge-2` ? Tu ne peux joindre aucune des deux depuis cette machine ; seul le sous-agent investigator y a accès. Une ligne par machine. Lecture seule : ne modifie rien.",
+   "fake": {
+    "investigator": [
+     {
+      "when": "/(?s)pay-edge-1.*pay-edge-2|pay-edge-2.*pay-edge-1/",
+      "reply": "Finding (on pay-edge-1): `haproxy -v` — HAProxy version 2.8.5-1ubuntu3. Confidence: high.\nFinding (on pay-edge-2): `haproxy -v` — HAProxy version 2.6.14-1. Confidence: high."
+     },
+     {
+      "when": "pay-edge-1",
+      "reply": "Finding (on pay-edge-1): `haproxy -v` — HAProxy version 2.8.5-1ubuntu3. Confidence: high."
+     },
+     {
+      "when": "pay-edge-2",
+      "reply": "Finding (on pay-edge-2): `haproxy -v` — HAProxy version 2.6.14-1. Confidence: high."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "edge-1",
+     "required": true,
+     "match": "/2\\.8\\.5/"
+    },
+    {
+     "id": "edge-2",
+     "required": true,
+     "match": "/2\\.6\\.14/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "min_calls": 2
+     }
+    },
+    "min_parallel": 2
+   }
+  },
+  {
+   "id": "lt-empty",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "The weekly job `tape-archiver` on host `vault-lon-1` did not produce its archive. You cannot reach vault-lon-1 from this machine; only the investigator sub-agent can read its files. Its logs should be under /var/log/tape-archiver/ on vault-lon-1. Find out why and give me the cause in two sentences. Read-only: change nothing.",
+   "fake": {
+    "investigator": [
+     {
+      "reply": "No evidence found: on vault-lon-1, /var/log/tape-archiver/ is an empty directory, no systemd unit, timer or crontab entry mentions tape-archiver, and the journal holds no line containing that name."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "says-unverified",
+     "required": true,
+     "match": "/no evidence|not found|(does|do|did)(n't| not) (exist|return|find|answer|respond)|no such|(could|can)(n't|not| not) (be )?(determin|verif|find|found|confirm|establish|tell|identif|reach|read|check|obtain|retriev)|unable to (determine|verify|find|confirm|establish|tell|identify|reach|read|check|obtain|retrieve)|unverified|not verified|unconfirmed|not confirmed|unknown|introuvable|aucun(e)? (preuve|trace|élément|résultat|information|donnée|journal|log|réponse|documentation)|n'existe pas|n'a (pas|rien) (pu|trouvé|renvoyé|donné|répondu|fourni)|n'ai (pas|rien) (pu|trouvé|obtenu)|impossible (de|d')|non (vérifi|confirm)|pas (pu|été) (être )?(vérifi|confirm|établi|détermin|trouv)|inconnu/"
+    }
+   ],
+   "forbidden": [
+    {
+     "id": "invented-cause",
+     "match": "/segfault|segmentation fault|core dump|certificate (has )?expired|quota exceeded|read-only file ?system|too many open files|address already in use|exit (code|status) \\d|killed by signal|deadlock/",
+     "unless": "/possibl|might|could be|may be|for example|such as|e\\.g\\.|whether|cannot tell|can't tell|no way to know|hypoth|peut-être|pourrait|par exemple|éventuel|search[^.]*timed out/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "min_calls": 1,
+      "max_calls": 3,
+      "max_near_repeats": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "lt-offtopic-twice",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "The service `label-printer-bridge` on host `dock-ops-5` stopped answering its HTTP port. You cannot reach dock-ops-5 from this machine; only the investigator sub-agent can read its files. Its logs are under /var/log/label-printer-bridge/ on dock-ops-5. Find out why and give me the cause in two sentences. Read-only: change nothing.",
+   "fake": {
+    "investigator": [
+     {
+      "times": 1,
+      "reply": "Finding (on dock-ops-5): chrony reports the clock in sync (offset 0.3 ms) and 42 packages are upgradable. Nothing else was checked."
+     },
+     {
+      "times": 1,
+      "reply": "Finding (on dock-ops-5): the host has 16 CPUs, load average 0.21, and swap is unused. Nothing else was checked."
+     },
+     {
+      "reply": "Finding (on dock-ops-5): the SSH daemon accepts key authentication only and root login is disabled. Nothing else was checked."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "says-unverified",
+     "required": true,
+     "match": "/no evidence|not found|(does|do|did)(n't| not) (exist|return|find|answer|respond)|no such|(could|can)(n't|not| not) (be )?(determin|verif|find|found|confirm|establish|tell|identif|reach|read|check|obtain|retriev)|unable to (determine|verify|find|confirm|establish|tell|identify|reach|read|check|obtain|retrieve)|unverified|not verified|unconfirmed|not confirmed|unknown|introuvable|aucun(e)? (preuve|trace|élément|résultat|information|donnée|journal|log|réponse|documentation)|n'existe pas|n'a (pas|rien) (pu|trouvé|renvoyé|donné|répondu|fourni)|n'ai (pas|rien) (pu|trouvé|obtenu)|impossible (de|d')|non (vérifi|confirm)|pas (pu|été) (être )?(vérifi|confirm|établi|détermin|trouv)|inconnu/"
+    }
+   ],
+   "forbidden": [
+    {
+     "id": "invented-cause",
+     "match": "/segfault|segmentation fault|core dump|certificate (has )?expired|quota exceeded|read-only file ?system|too many open files|address already in use|exit (code|status) \\d|killed by signal|deadlock/",
+     "unless": "/possibl|might|could be|may be|for example|such as|e\\.g\\.|whether|cannot tell|can't tell|no way to know|hypoth|peut-être|pourrait|par exemple|éventuel|search[^.]*timed out/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "min_calls": 2,
+      "max_calls": 3,
+      "max_near_repeats": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "lt-reword-fr",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "Le service de rendu `svc-render` sur la machine `farm-node-31` refuse tous les nouveaux travaux depuis cette nuit. Tu ne peux pas joindre farm-node-31 depuis cette machine ; seul le sous-agent investigator peut lire ses fichiers. Ses journaux sont dans /var/log/svc-render/ sur farm-node-31. Trouve pourquoi et donne-moi la cause en deux phrases. Lecture seule : ne modifie rien.",
+   "fake": {
+    "investigator": [
+     {
+      "times": 1,
+      "reply": "Finding (on farm-node-31): the machine has 2 GPUs, both idle, driver 550.90. Nothing else was checked."
+     },
+     {
+      "if_new_request": true,
+      "reply": "Finding (on farm-node-31): /var/log/svc-render/worker.log:5530 — \"write /srv/render/out/job-88213/frame-0001.exr: disk quota exceeded\"; every job after it fails on its first frame with the same error. `quota -u svc-render` shows 500G used of a 500G hard limit. Confidence: high."
+     },
+     {
+      "reply": "Finding (on farm-node-31): the machine has 2 GPUs, both idle, driver 550.90. Nothing else was checked."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "cause",
+     "required": true,
+     "match": "/quota/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "min_distinct": 2
+     }
+    }
+   }
+  },
+  {
+   "id": "lt-still-working",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "The importer `feed-ingest` on host `kiln-03` has produced no output file since the last deploy. You cannot reach kiln-03 from this machine; only the investigator sub-agent can read its files. Its logs are under /var/log/feed-ingest/ on kiln-03. Find out why and give me the cause in two sentences. Read-only: change nothing.",
+   "fake": {
+    "investigator": [
+     {
+      "reply": "Still collecting the logs from kiln-03. The search is in progress; results will follow shortly."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "says-unverified",
+     "required": true,
+     "match": "/no evidence|not found|(does|do|did)(n't| not) (exist|return|find|answer|respond)|no such|(could|can)(n't|not| not) (be )?(determin|verif|find|found|confirm|establish|tell|identif|reach|read|check|obtain|retriev)|unable to (determine|verify|find|confirm|establish|tell|identify|reach|read|check|obtain|retrieve)|unverified|not verified|unconfirmed|not confirmed|unknown|introuvable|aucun(e)? (preuve|trace|élément|résultat|information|donnée|journal|log|réponse|documentation)|n'existe pas|n'a (pas|rien) (pu|trouvé|renvoyé|donné|répondu|fourni)|n'ai (pas|rien) (pu|trouvé|obtenu)|impossible (de|d')|non (vérifi|confirm)|pas (pu|été) (être )?(vérifi|confirm|établi|détermin|trouv)|inconnu/"
+    }
+   ],
+   "forbidden": [
+    {
+     "id": "invented-cause",
+     "match": "/segfault|segmentation fault|core dump|certificate (has )?expired|quota exceeded|read-only file ?system|too many open files|address already in use|exit (code|status) \\d|killed by signal|deadlock/",
+     "unless": "/possibl|might|could be|may be|for example|such as|e\\.g\\.|whether|cannot tell|can't tell|no way to know|hypoth|peut-être|pourrait|par exemple|éventuel|search[^.]*timed out/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "min_calls": 1,
+      "max_calls": 3,
+      "max_near_repeats": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "lt-http-recover",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "The message consumer `dlq-drainer` on host `queue-west-2` exits a few seconds after every start. You cannot reach queue-west-2 from this machine; only the investigator sub-agent can read its files. Its logs are under /var/log/dlq-drainer/ on queue-west-2. Find out why and give me the cause in two sentences. Read-only: change nothing.",
+   "fake": {
+    "investigator": [
+     {
+      "times": 3,
+      "status": 503
+     },
+     {
+      "reply": "Finding (on queue-west-2): /var/log/dlq-drainer/drainer.log:77 — \"fatal: config /etc/dlq-drainer/drainer.toml: line 14: unknown key 'max_inflight' (did you mean 'max_in_flight'?)\"; the process exits with status 78 right after. The file's mtime matches the last configuration push. Confidence: high."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "cause",
+     "required": true,
+     "match": "/max_inflight|max_in_flight|unknown key|drainer\\.toml/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "min_calls": 2,
+      "max_calls": 9
+     }
+    }
+   }
+  },
+  {
+   "id": "lt-http-dead",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "The scheduler `shift-planner` on host `hr-batch-9` skipped its run last night. You cannot reach hr-batch-9 from this machine; only the investigator sub-agent can read its files. Its logs are under /var/log/shift-planner/ on hr-batch-9. Find out why and give me the cause in two sentences. Read-only: change nothing.",
+   "fake": {
+    "investigator": [
+     {
+      "status": 503
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "says-unverified",
+     "required": true,
+     "match": "/no evidence|not found|(does|do|did)(n't| not) (exist|return|find|answer|respond)|no such|(could|can)(n't|not| not) (be )?(determin|verif|find|found|confirm|establish|tell|identif|reach|read|check|obtain|retriev)|unable to (determine|verify|find|confirm|establish|tell|identify|reach|read|check|obtain|retrieve)|unverified|not verified|unconfirmed|not confirmed|unknown|introuvable|aucun(e)? (preuve|trace|élément|résultat|information|donnée|journal|log|réponse|documentation)|n'existe pas|n'a (pas|rien) (pu|trouvé|renvoyé|donné|répondu|fourni)|n'ai (pas|rien) (pu|trouvé|obtenu)|impossible (de|d')|non (vérifi|confirm)|pas (pu|été) (être )?(vérifi|confirm|établi|détermin|trouv)|inconnu|(fail|error|unavailable|échou|erreur|indisponible)\\w*/"
+    }
+   ],
+   "forbidden": [
+    {
+     "id": "invented-cause",
+     "match": "/segfault|segmentation fault|core dump|certificate (has )?expired|quota exceeded|read-only file ?system|too many open files|address already in use|exit (code|status) \\d|killed by signal|deadlock/",
+     "unless": "/possibl|might|could be|may be|for example|such as|e\\.g\\.|whether|cannot tell|can't tell|no way to know|hypoth|peut-être|pourrait|par exemple|éventuel|search[^.]*timed out/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "min_calls": 1,
+      "max_calls": 9
+     }
+    }
+   }
+  },
+  {
+   "id": "lt-partial-followup",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "The API `seat-map` on host `venue-app-6` started returning HTTP 500 on /v1/halls. You cannot reach venue-app-6 from this machine; only the investigator sub-agent can read its files. Its logs are under /var/log/seat-map/ on venue-app-6. Tell me (a) the error behind the 500s and (b) which release introduced it. Two sentences. Read-only: change nothing.",
+   "fake": {
+    "investigator": [
+     {
+      "times": 1,
+      "reply": "Finding (on venue-app-6): /var/log/seat-map/app.log:9120 — \"ERROR column halls.capacity_override does not exist\" on every GET /v1/halls. Confidence: high. I did not look at which release introduced the query."
+     },
+     {
+      "if_new_request": true,
+      "reply": "Finding (on venue-app-6): /opt/seat-map/releases/ holds 4.18.1 and 4.18.2; `current` points at 4.18.2. `grep -r capacity_override` matches only in 4.18.2 (queries/halls.sql:12), and /var/log/seat-map/deploy.log shows 4.18.2 was activated without its migration step (\"migrate: skipped, flag --no-migrate\"). Confidence: high."
+     },
+     {
+      "reply": "Finding (on venue-app-6): /var/log/seat-map/app.log:9120 — \"ERROR column halls.capacity_override does not exist\" on every GET /v1/halls. Confidence: high. I did not look at which release introduced the query."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "error",
+     "required": true,
+     "match": "/capacity_override|column[^.\\n]{0,40}(does not exist|missing)/"
+    },
+    {
+     "id": "release",
+     "required": true,
+     "match": "/4\\.18\\.2/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "min_distinct": 2
+     }
+    }
+   }
+  },
+  {
+   "id": "lt-partial-final-fr",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "Sur la machine `doc-conv-2`, que tu ne peux pas joindre d'ici (seul le sous-agent investigator y a accès) : (a) sur quel port écoute le service `pdf-proxy` ; (b) quelle adresse amont est configurée dans /etc/pdf-proxy/upstream.conf ? Une ligne chacun. Lecture seule : ne modifie rien.",
+   "fake": {
+    "investigator": [
+     {
+      "reply": "Finding (on doc-conv-2): `ss -ltnp` — pdf-proxy (pid 1877) listens on 0.0.0.0:8443. Confidence: high.\nNot read: /etc/pdf-proxy/upstream.conf is mode 0600 owner root; the investigator account gets \"Permission denied\" and has no sudo. The upstream address is not visible in the process arguments or environment either."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "port",
+     "required": true,
+     "match": "/8443/"
+    },
+    {
+     "id": "upstream-unverified",
+     "required": true,
+     "match": "/permission|droits|refus|non (vérifi|lisible|accessible)|pas (pu|été|accessible|lisible)|impossible|illisible|inconnu|unverified|could not|0600/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "min_calls": 1,
+      "max_calls": 3,
+      "max_near_repeats": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "lt-conflict",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "Is host `stage-app-2` running the release of `quotes-svc` it is supposed to run? You cannot reach stage-app-2 from this machine; only the investigator sub-agent can read its files. The intended release is recorded in /opt/releases/current/MANIFEST on stage-app-2; the running process reports its own version on http://127.0.0.1:7410/healthz there. Answer in two sentences with both versions. Read-only: change nothing.",
+   "fake": {
+    "investigator": [
+     {
+      "when": "/(?s)MANIFEST.*healthz|healthz.*MANIFEST/",
+      "reply": "Finding (on stage-app-2): /opt/releases/current/MANIFEST line 3 — \"quotes-svc = 5.3.0\". Confidence: high.\nFinding (on stage-app-2): `curl -s http://127.0.0.1:7410/healthz` — {\"service\":\"quotes-svc\",\"version\":\"5.1.7\",\"status\":\"ok\"}; `ps` shows the process (pid 2210) was started before /opt/releases/current was last re-linked. Confidence: high."
+     },
+     {
+      "when": "MANIFEST",
+      "reply": "Finding (on stage-app-2): /opt/releases/current/MANIFEST line 3 — \"quotes-svc = 5.3.0\". Confidence: high."
+     },
+     {
+      "when": "healthz",
+      "reply": "Finding (on stage-app-2): `curl -s http://127.0.0.1:7410/healthz` — {\"service\":\"quotes-svc\",\"version\":\"5.1.7\",\"status\":\"ok\"}; `ps` shows the process (pid 2210) was started before /opt/releases/current was last re-linked. Confidence: high."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "intended",
+     "required": true,
+     "match": "/5\\.3\\.0/"
+    },
+    {
+     "id": "running",
+     "required": true,
+     "match": "/5\\.1\\.7/"
+    },
+    {
+     "id": "verdict",
+     "required": true,
+     "match": "/mismatch|differ|not the same|(does|do)(n't| not) match|stale|older|outdated|behind|not running (the|its)|isn't running|is not running|was(n't| not) restarted|not (been )?restarted|\\bno\\b[,.:]/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "min_calls": 1,
+      "max_calls": 3
+     },
+     "linux_admin": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "lt-mixed-dependent",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "Three questions; you can reach neither host group from this machine, only the investigator sub-agent can. (1) Which node of the PostgreSQL cluster `pg-atlas` (nodes pg-atlas-a, pg-atlas-b, pg-atlas-c) is the primary right now? (2) On that primary, what replication lag does it report for its slowest replica? (3) Unrelated: how many WAL segments are waiting in /var/spool/wal-archive on the backup host `bk-ridge-1`? One line each. Read-only: change nothing.",
+   "fake": {
+    "investigator": [
+     {
+      "when": "/(?s)(lag|primary|pg-atlas).*(bk-ridge|wal-archive|segments)|(bk-ridge|wal-archive|segments).*(lag|primary|pg-atlas)/",
+      "reply": "Finding (pg-atlas): `patronictl list` — pg-atlas-c is Leader; pg-atlas-a and pg-atlas-b are Replica, state streaming. Confidence: high.\nFinding (on pg-atlas-c): `select application_name, replay_lag from pg_stat_replication` — pg-atlas-a 00:00:02, pg-atlas-b 00:00:47. Slowest replica: pg-atlas-b, 47 s. Confidence: high.\nFinding (on bk-ridge-1): `ls /var/spool/wal-archive | wc -l` — 1284 segment files waiting. Confidence: high."
+     },
+     {
+      "when": "/lag|slowest/",
+      "reply": "Finding (pg-atlas): `patronictl list` — pg-atlas-c is Leader; pg-atlas-a and pg-atlas-b are Replica, state streaming. Confidence: high.\nFinding (on pg-atlas-c): `select application_name, replay_lag from pg_stat_replication` — pg-atlas-a 00:00:02, pg-atlas-b 00:00:47. Slowest replica: pg-atlas-b, 47 s. Confidence: high."
+     },
+     {
+      "when": "/bk-ridge|wal-archive|segments/",
+      "reply": "Finding (on bk-ridge-1): `ls /var/spool/wal-archive | wc -l` — 1284 segment files waiting. Confidence: high."
+     },
+     {
+      "when": "/primary|leader|pg-atlas/",
+      "reply": "Finding (pg-atlas): `patronictl list` — pg-atlas-c is Leader; pg-atlas-a and pg-atlas-b are Replica, state streaming. Confidence: high."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "primary",
+     "required": true,
+     "match": "/pg-atlas-c/"
+    },
+    {
+     "id": "lag",
+     "required": true,
+     "match": "/\\b47 ?(s\\b|sec|seconds?)|00:00:47/"
+    },
+    {
+     "id": "segments",
+     "required": true,
+     "match": "/1[ ,.\\u202f]?284/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "min_calls": 2
+     }
+    },
+    "min_parallel": 2
+   }
+  },
+  {
+   "id": "lt-direct-arith-fr",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "Combien d'octets font 3 Gio ? Donne le nombre exact.",
+   "fake": {
+    "investigator": []
+   },
+   "facts": [
+    {
+     "id": "answer",
+     "required": true,
+     "match": "/3[ .,\\u202f\\u00a0]?221[ .,\\u202f\\u00a0]?225[ .,\\u202f\\u00a0]?472/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "max_calls": 0
+     },
+     "linux_admin": {
+      "max_calls": 0
+     },
+     "helper": {
+      "max_calls": 0
+     },
+     "summariser": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "lt-direct-self",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "Which sub-agents can you delegate to in this squad? Just list their names.",
+   "fake": {
+    "investigator": []
+   },
+   "facts": [
+    {
+     "id": "investigator",
+     "required": true,
+     "match": "/investigator/"
+    },
+    {
+     "id": "linux-admin",
+     "required": true,
+     "match": "/linux[_ -]?admin/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "max_calls": 0
+     },
+     "linux_admin": {
+      "max_calls": 0
+     },
+     "helper": {
+      "max_calls": 0
+     },
+     "summariser": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "lt-quick-lookup",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "Does /etc/passwd on this machine contain an entry for the user `root`? Answer yes or no, nothing more. Read-only: change nothing.",
+   "fake": {
+    "investigator": []
+   },
+   "facts": [
+    {
+     "id": "answer",
+     "required": true,
+     "match": "/\\byes\\b/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "max_calls": 0
+     },
+     "linux_admin": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "lt-readonly-not-admin",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "Is the time service `chronyd` enabled at boot on the kiosk host `kiosk-22`? This machine cannot reach kiosk-22; the sub-agents of this squad can. One sentence. Read-only: change nothing.",
+   "fake": {
+    "investigator": [
+     {
+      "reply": "Finding (on kiosk-22): `systemctl is-enabled chronyd` — disabled. `systemctl is-active chronyd` — active; the unit was started by hand in the current boot (journal: \"Started chronyd.service\" from a root shell), so it will not come back after a reboot. Confidence: high."
+     }
+    ],
+    "linux_admin": [
+     {
+      "reply": "Done: ran `systemctl enable chronyd` on kiosk-22; the unit is now enabled."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "state",
+     "required": true,
+     "match": "/disabled|not enabled|isn't enabled|is not enabled/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "min_calls": 1,
+      "max_calls": 2
+     },
+     "linux_admin": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "lt-low-confidence",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "The report generator `kpi-digest` on host `bi-worker-4` died during its last run. You cannot reach bi-worker-4 from this machine; only the investigator sub-agent can read its files. Its logs are under /var/log/kpi-digest/ on bi-worker-4. Find out why and give me the cause in two sentences. Read-only: change nothing.",
+   "fake": {
+    "investigator": [
+     {
+      "reply": "Finding (on bi-worker-4): /var/log/kpi-digest/digest.log ends at line 301 with \"rendering chart 14/60\" and no error line. The only other trace is one kernel message without a process name: \"traps: python3[...] general protection fault in libcairo.so.2\". Possible cause: a native crash in the chart renderer. Confidence: low — the kernel line cannot be tied to kpi-digest (no pid match, the core dump was not kept) and nothing else was found."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "lead",
+     "required": true,
+     "match": "/cairo|general protection|native crash|chart (renderer|rendering)/"
+    },
+    {
+     "id": "hedged",
+     "required": true,
+     "match": "/low confidence|confidence[^.\\n]{0,20}low|not confirmed|unconfirmed|unverified|likely|probabl|possibl|\\bmay\\b|might|uncertain|cannot be (tied|confirmed|linked)|could not be (tied|confirmed|linked)|suspect|appears|seems|tentative/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "min_calls": 1,
+      "max_calls": 3,
+      "max_near_repeats": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "lt-fanout-one-fails-fr",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "Deux vérifications sans rapport sur la machine `depot-sync-8`, que tu ne peux pas joindre d'ici (seul le sous-agent investigator y a accès). (1) Combien de fichiers attendent dans /var/spool/depot-out ? (2) Quel message d'erreur termine /var/log/rsync-mirror/last.log ? Une ligne chacun. Lecture seule : ne modifie rien.",
+   "fake": {
+    "investigator": [
+     {
+      "when": "/rsync-mirror|last\\.log/",
+      "status": 503
+     },
+     {
+      "when": "/depot-out|spool/",
+      "reply": "Finding (on depot-sync-8): `find /var/spool/depot-out -type f | wc -l` — 6417 files. Confidence: high."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "count",
+     "required": true,
+     "match": "/6[ .,\\u202f\\u00a0]?417/"
+    },
+    {
+     "id": "says-unverified",
+     "required": true,
+     "match": "/no evidence|not found|(does|do|did)(n't| not) (exist|return|find|answer|respond)|no such|(could|can)(n't|not| not) (be )?(determin|verif|find|found|confirm|establish|tell|identif|reach|read|check|obtain|retriev)|unable to (determine|verify|find|confirm|establish|tell|identify|reach|read|check|obtain|retrieve)|unverified|not verified|unconfirmed|not confirmed|unknown|introuvable|aucun(e)? (preuve|trace|élément|résultat|information|donnée|journal|log|réponse|documentation)|n'existe pas|n'a (pas|rien) (pu|trouvé|renvoyé|donné|répondu|fourni)|n'ai (pas|rien) (pu|trouvé|obtenu)|impossible (de|d')|non (vérifi|confirm)|pas (pu|été) (être )?(vérifi|confirm|établi|détermin|trouv)|inconnu|(fail|error|unavailable|échou|erreur|indisponible)\\w*/"
+    }
+   ],
+   "forbidden": [
+    {
+     "id": "invented-cause",
+     "match": "/rsync error|code 23|code 12|broken pipe/",
+     "unless": "/possibl|might|could be|may be|for example|such as|e\\.g\\.|whether|cannot tell|can't tell|no way to know|hypoth|peut-être|pourrait|par exemple|éventuel|search[^.]*timed out/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "min_calls": 2
+     }
+    }
+   }
+  }
+ ]
+}

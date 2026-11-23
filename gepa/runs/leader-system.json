@@ -1,0 +1,11 @@
+{
+ "name": "leader-system",
+ "omnis_ref": "develop",
+ "components": ["instruction:leader", "turn_reminder:leader"],
+ "models": ["balanced", "premium"],
+ "repeat_search": 2,
+ "repeat_heldout": 5,
+ "workers": 2,
+ "max_metric_calls": 400,
+ "ceiling_usd": 60
+}

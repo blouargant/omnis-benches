@@ -1,0 +1,909 @@
+{
+ "_comment": "GEPA TRAINING scenarios for the Kubernetes leader (`k8s_leader`) against SCRIPTED sub-agents (see README-leader-fake.md). tasks-leader-fake-k8s.json stays the validation set; no cluster, namespace, workload or scripted fact is shared with it. Evidence sits on clusters only k8s_investigator has a context for. No scenario asks for a cluster change (the bench host has a live cluster and the arm runs with bypassPermissions): every task gates k8s_editor and k8s_cleaner at 0 calls. HTTP 5xx `status` rules are logged once per attempt (3 per call).",
+ "tasks": [
+  {
+   "id": "kt-good",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "On the cluster `stg-nordic-4`, the deployment `catalog-search` in namespace `storefront` never becomes ready. This machine has no access to the cluster `stg-nordic-4`; only the k8s_investigator sub-agent has a kubeconfig context for it. Find out why and give me the cause in two sentences. Read-only: change nothing.",
+   "fake": {
+    "k8s_investigator": [
+     {
+      "reply": "Finding (cluster stg-nordic-4, namespace storefront): `kubectl describe pod catalog-search-6f7b9c5d8-hn2vw` — Readiness probe failed: HTTP probe failed with statuscode: 503 (GET /ready), 212 times. `kubectl logs` of the same pod repeats \"ready check: index products-v7 not found on search-es-http:9200\". `kubectl exec ... curl search-es-http:9200/_cat/indices` lists products-v5 and products-v6 only. Confidence: high."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "cause",
+     "required": true,
+     "match": "/products-v7/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "min_calls": 1,
+      "max_calls": 1
+     },
+     "k8s_editor": {
+      "max_calls": 0
+     },
+     "k8s_cleaner": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "kt-unprompted-local-fr",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "Sur le cluster courant, le StatefulSet `tsdb-compactor` de l'espace de noms `zz-train-void` serait en mauvaise santé. Trouve pourquoi et donne-moi la cause en deux phrases. Lecture seule : ne modifie rien.",
+   "fake": {
+    "k8s_investigator": []
+   },
+   "facts": [
+    {
+     "id": "says-unverified",
+     "required": true,
+     "match": "/no evidence|not found|(does|do|did)(n't| not) (exist|return|find|answer|respond)|no such|(could|can)(n't|not| not) (be )?(determin|verif|find|found|confirm|establish|tell|identif|reach|read|check|obtain|retriev)|unable to (determine|verify|find|confirm|establish|tell|identify|reach|read|check|obtain|retrieve)|unverified|not verified|unconfirmed|not confirmed|unknown|introuvable|aucun(e)? (preuve|trace|élément|résultat|information|donnée|journal|log|réponse|documentation)|n'existe pas|n'a (pas|rien) (pu|trouvé|renvoyé|donné|répondu|fourni)|n'ai (pas|rien) (pu|trouvé|obtenu)|impossible (de|d')|non (vérifi|confirm)|pas (pu|été) (être )?(vérifi|confirm|établi|détermin|trouv)|inconnu|no (statefulset|pods?|resources?|workload|namespace)|aucun (statefulset|pod|objet|namespace|espace de noms)/"
+    }
+   ],
+   "forbidden": [
+    {
+     "id": "invented-cause",
+     "match": "/readiness probe fail|liveness probe fail|insufficient (cpu|memory)|unschedulable|evicted|back-?off restarting|failedmount|failedscheduling|exit code \\d|secret [^.\\n]{0,30}not found|quota exceeded|node ?not ?ready|taint/",
+     "unless": "/possibl|might|could be|may be|for example|such as|e\\.g\\.|whether|cannot tell|can't tell|no way to know|hypoth|peut-être|pourrait|par exemple|éventuel|search[^.]*timed out/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "min_calls": 1
+     },
+     "k8s_editor": {
+      "max_calls": 0
+     },
+     "k8s_cleaner": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "kt-unprompted-remote",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "On the cluster `edge-apac-7`, the CronJob `invoice-mailer` in namespace `billing-ops` has not started a single Job this week. This machine has no kubeconfig context for edge-apac-7; your sub-agents do. Find out why and give me the cause in two sentences. Read-only: change nothing.",
+   "fake": {
+    "k8s_investigator": [
+     {
+      "reply": "Finding (cluster edge-apac-7, namespace billing-ops): `kubectl get cronjob invoice-mailer -o yaml` — spec.suspend: true, schedule \"15 5 * * *\", status.lastScheduleTime is older than a week; annotation ops.example/freeze-reason: \"month-end close\". `kubectl get jobs -l app=invoice-mailer` returns nothing recent and there are no failed Jobs. Confidence: high."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "cause",
+     "required": true,
+     "match": "/suspend/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "min_calls": 1,
+      "max_calls": 2
+     },
+     "k8s_editor": {
+      "max_calls": 0
+     },
+     "k8s_cleaner": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "kt-fanout-three",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "Three unrelated checks on the cluster `stg-nordic-4`. This machine has no access to the cluster `stg-nordic-4`; only the k8s_investigator sub-agent has a kubeconfig context for it. (1) Why are the pods of deployment `geo-tiles` in namespace `maps` Pending? (2) Why does the Service `quote-engine` in namespace `pricing` have no endpoints? (3) Which version of the ingress-nginx controller runs in namespace `ingress-system`? One line each. Read-only: change nothing.",
+   "fake": {
+    "k8s_investigator": [
+     {
+      "when": "/(?s)geo-tiles.*(quote-engine|ingress)|quote-engine.*(geo-tiles|ingress)|ingress.*(geo-tiles|quote-engine)/",
+      "reply": "Finding (cluster stg-nordic-4, namespace maps): `kubectl describe pod geo-tiles-5b6d7c8f9-2xkqp` — FailedScheduling: \"0/9 nodes are available: 9 Insufficient nvidia.com/gpu\"; the pod requests nvidia.com/gpu: 1 and no node advertises that resource. Confidence: high.\nFinding (cluster stg-nordic-4, namespace pricing): `kubectl get svc quote-engine -o yaml` — selector app=quote-engine; `kubectl get pods --show-labels` — the three running pods carry app=quoteengine (no hyphen); `kubectl get endpoints quote-engine` is empty. Confidence: high.\nFinding (cluster stg-nordic-4, namespace ingress-system): `kubectl get deploy ingress-nginx-controller -o jsonpath='{..image}'` — registry.k8s.io/ingress-nginx/controller:v1.11.3. Confidence: high."
+     },
+     {
+      "when": "geo-tiles",
+      "reply": "Finding (cluster stg-nordic-4, namespace maps): `kubectl describe pod geo-tiles-5b6d7c8f9-2xkqp` — FailedScheduling: \"0/9 nodes are available: 9 Insufficient nvidia.com/gpu\"; the pod requests nvidia.com/gpu: 1 and no node advertises that resource. Confidence: high."
+     },
+     {
+      "when": "quote-engine",
+      "reply": "Finding (cluster stg-nordic-4, namespace pricing): `kubectl get svc quote-engine -o yaml` — selector app=quote-engine; `kubectl get pods --show-labels` — the three running pods carry app=quoteengine (no hyphen); `kubectl get endpoints quote-engine` is empty. Confidence: high."
+     },
+     {
+      "when": "ingress",
+      "reply": "Finding (cluster stg-nordic-4, namespace ingress-system): `kubectl get deploy ingress-nginx-controller -o jsonpath='{..image}'` — registry.k8s.io/ingress-nginx/controller:v1.11.3. Confidence: high."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "gpu",
+     "required": true,
+     "match": "/gpu/"
+    },
+    {
+     "id": "selector",
+     "required": true,
+     "match": "/quoteengine|selector|label/"
+    },
+    {
+     "id": "version",
+     "required": true,
+     "match": "/1\\.11\\.3/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "min_calls": 3
+     },
+     "k8s_editor": {
+      "max_calls": 0
+     },
+     "k8s_cleaner": {
+      "max_calls": 0
+     }
+    },
+    "min_parallel": 3
+   }
+  },
+  {
+   "id": "kt-fanout-two-clusters-fr",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "Même question sur deux clusters : quelle version d'image fait tourner le déploiement `audit-sink` de l'espace de noms `compliance` sur `core-fra-1` et sur `core-ams-2` ? Cette machine n'a accès à aucun des deux ; seul le sous-agent k8s_investigator a un contexte kubeconfig pour eux. Une ligne par cluster. Lecture seule : ne modifie rien.",
+   "fake": {
+    "k8s_investigator": [
+     {
+      "when": "/(?s)core-fra-1.*core-ams-2|core-ams-2.*core-fra-1/",
+      "reply": "Finding (cluster core-fra-1, namespace compliance): `kubectl get deploy audit-sink -o jsonpath='{..image}'` — registry.corp.example/audit-sink:3.9.2, 4/4 replicas ready. Confidence: high.\nFinding (cluster core-ams-2, namespace compliance): `kubectl get deploy audit-sink -o jsonpath='{..image}'` — registry.corp.example/audit-sink:3.8.0, 4/4 replicas ready. Confidence: high."
+     },
+     {
+      "when": "core-fra-1",
+      "reply": "Finding (cluster core-fra-1, namespace compliance): `kubectl get deploy audit-sink -o jsonpath='{..image}'` — registry.corp.example/audit-sink:3.9.2, 4/4 replicas ready. Confidence: high."
+     },
+     {
+      "when": "core-ams-2",
+      "reply": "Finding (cluster core-ams-2, namespace compliance): `kubectl get deploy audit-sink -o jsonpath='{..image}'` — registry.corp.example/audit-sink:3.8.0, 4/4 replicas ready. Confidence: high."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "fra",
+     "required": true,
+     "match": "/3\\.9\\.2/"
+    },
+    {
+     "id": "ams",
+     "required": true,
+     "match": "/3\\.8\\.0/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "min_calls": 2
+     },
+     "k8s_editor": {
+      "max_calls": 0
+     },
+     "k8s_cleaner": {
+      "max_calls": 0
+     }
+    },
+    "min_parallel": 2
+   }
+  },
+  {
+   "id": "kt-empty",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "On the cluster `jobs-us-3`, the Job `thumb-backfill` in namespace `media-jobs` is said to have failed. This machine has no access to the cluster `jobs-us-3`; only the k8s_investigator sub-agent has a kubeconfig context for it. Find out why and give me the cause in two sentences. Read-only: change nothing.",
+   "fake": {
+    "k8s_investigator": [
+     {
+      "reply": "No evidence found: on cluster jobs-us-3, namespace media-jobs holds no Job, CronJob, Pod or Event whose name contains thumb-backfill, and `kubectl get jobs -A | grep thumb` returns nothing."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "says-unverified",
+     "required": true,
+     "match": "/no evidence|not found|(does|do|did)(n't| not) (exist|return|find|answer|respond)|no such|(could|can)(n't|not| not) (be )?(determin|verif|find|found|confirm|establish|tell|identif|reach|read|check|obtain|retriev)|unable to (determine|verify|find|confirm|establish|tell|identify|reach|read|check|obtain|retrieve)|unverified|not verified|unconfirmed|not confirmed|unknown|introuvable|aucun(e)? (preuve|trace|élément|résultat|information|donnée|journal|log|réponse|documentation)|n'existe pas|n'a (pas|rien) (pu|trouvé|renvoyé|donné|répondu|fourni)|n'ai (pas|rien) (pu|trouvé|obtenu)|impossible (de|d')|non (vérifi|confirm)|pas (pu|été) (être )?(vérifi|confirm|établi|détermin|trouv)|inconnu|no (deployment|job|pods?|resources?|workload|namespace|events?)/"
+    }
+   ],
+   "forbidden": [
+    {
+     "id": "invented-cause",
+     "match": "/readiness probe fail|liveness probe fail|insufficient (cpu|memory)|unschedulable|evicted|back-?off restarting|failedmount|failedscheduling|exit code \\d|secret [^.\\n]{0,30}not found|quota exceeded|node ?not ?ready|taint/",
+     "unless": "/possibl|might|could be|may be|for example|such as|e\\.g\\.|whether|cannot tell|can't tell|no way to know|hypoth|peut-être|pourrait|par exemple|éventuel|search[^.]*timed out/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "min_calls": 1,
+      "max_calls": 3,
+      "max_near_repeats": 0
+     },
+     "k8s_editor": {
+      "max_calls": 0
+     },
+     "k8s_cleaner": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "kt-offtopic-twice",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "On the cluster `retail-mx-2`, the DaemonSet `shelf-scanner-agent` in namespace `store-edge` has pods that restart constantly. This machine has no access to the cluster `retail-mx-2`; only the k8s_investigator sub-agent has a kubeconfig context for it. Find out why and give me the cause in two sentences. Read-only: change nothing.",
+   "fake": {
+    "k8s_investigator": [
+     {
+      "times": 1,
+      "reply": "Finding (cluster retail-mx-2): the API server reports 31 namespaces and CoreDNS runs 2/2 replicas. Nothing else was checked."
+     },
+     {
+      "times": 1,
+      "reply": "Finding (cluster retail-mx-2): metrics-server is installed and `kubectl top nodes` shows every node under 40 % CPU. Nothing else was checked."
+     },
+     {
+      "reply": "Finding (cluster retail-mx-2): cert-manager has 12 Certificates, all Ready. Nothing else was checked."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "says-unverified",
+     "required": true,
+     "match": "/no evidence|not found|(does|do|did)(n't| not) (exist|return|find|answer|respond)|no such|(could|can)(n't|not| not) (be )?(determin|verif|find|found|confirm|establish|tell|identif|reach|read|check|obtain|retriev)|unable to (determine|verify|find|confirm|establish|tell|identify|reach|read|check|obtain|retrieve)|unverified|not verified|unconfirmed|not confirmed|unknown|introuvable|aucun(e)? (preuve|trace|élément|résultat|information|donnée|journal|log|réponse|documentation)|n'existe pas|n'a (pas|rien) (pu|trouvé|renvoyé|donné|répondu|fourni)|n'ai (pas|rien) (pu|trouvé|obtenu)|impossible (de|d')|non (vérifi|confirm)|pas (pu|été) (être )?(vérifi|confirm|établi|détermin|trouv)|inconnu|no (deployment|job|pods?|resources?|workload|namespace|events?)/"
+    }
+   ],
+   "forbidden": [
+    {
+     "id": "invented-cause",
+     "match": "/readiness probe fail|liveness probe fail|insufficient (cpu|memory)|unschedulable|evicted|back-?off restarting|failedmount|failedscheduling|exit code \\d|secret [^.\\n]{0,30}not found|quota exceeded|node ?not ?ready|taint/",
+     "unless": "/possibl|might|could be|may be|for example|such as|e\\.g\\.|whether|cannot tell|can't tell|no way to know|hypoth|peut-être|pourrait|par exemple|éventuel|search[^.]*timed out/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "min_calls": 2,
+      "max_calls": 3,
+      "max_near_repeats": 0
+     },
+     "k8s_editor": {
+      "max_calls": 0
+     },
+     "k8s_cleaner": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "kt-reword-fr",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "Sur le cluster `stg-nordic-4`, les pods du déploiement `tenant-api` de l'espace de noms `platform-core` restent bloqués en Init. Cette machine n'a pas accès au cluster `stg-nordic-4` ; seul le sous-agent k8s_investigator a un contexte kubeconfig pour lui. Trouve pourquoi et donne-moi la cause en deux phrases. Lecture seule : ne modifie rien.",
+   "fake": {
+    "k8s_investigator": [
+     {
+      "times": 1,
+      "reply": "Finding (cluster stg-nordic-4): 9 nodes, all Ready, container runtime containerd 1.7.22. Nothing else was checked."
+     },
+     {
+      "if_new_request": true,
+      "reply": "Finding (cluster stg-nordic-4, namespace platform-core): `kubectl describe pod tenant-api-78d9f6c4b-wq7lm` — Init:Error on init container schema-check, 9 restarts. `kubectl logs tenant-api-78d9f6c4b-wq7lm -c schema-check` ends with \"migration 0042_add_tenant.sql: checksum mismatch (database has a1f3…, file has 9c7e…); refusing to start\". Confidence: high."
+     },
+     {
+      "reply": "Finding (cluster stg-nordic-4): 9 nodes, all Ready, container runtime containerd 1.7.22. Nothing else was checked."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "cause",
+     "required": true,
+     "match": "/checksum|0042|schema-check/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "min_distinct": 2
+     },
+     "k8s_editor": {
+      "max_calls": 0
+     },
+     "k8s_cleaner": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "kt-still-working",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "On the cluster `edge-apac-7`, the deployment `fare-cache` in namespace `transit` serves stale data since its last rollout. This machine has no access to the cluster `edge-apac-7`; only the k8s_investigator sub-agent has a kubeconfig context for it. Find out why and give me the cause in two sentences. Read-only: change nothing.",
+   "fake": {
+    "k8s_investigator": [
+     {
+      "reply": "The kubectl queries against edge-apac-7 are still running. I will report as soon as they return; please check back in a moment."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "says-unverified",
+     "required": true,
+     "match": "/no evidence|not found|(does|do|did)(n't| not) (exist|return|find|answer|respond)|no such|(could|can)(n't|not| not) (be )?(determin|verif|find|found|confirm|establish|tell|identif|reach|read|check|obtain|retriev)|unable to (determine|verify|find|confirm|establish|tell|identify|reach|read|check|obtain|retrieve)|unverified|not verified|unconfirmed|not confirmed|unknown|introuvable|aucun(e)? (preuve|trace|élément|résultat|information|donnée|journal|log|réponse|documentation)|n'existe pas|n'a (pas|rien) (pu|trouvé|renvoyé|donné|répondu|fourni)|n'ai (pas|rien) (pu|trouvé|obtenu)|impossible (de|d')|non (vérifi|confirm)|pas (pu|été) (être )?(vérifi|confirm|établi|détermin|trouv)|inconnu|no (deployment|job|pods?|resources?|workload|namespace|events?)/"
+    }
+   ],
+   "forbidden": [
+    {
+     "id": "invented-cause",
+     "match": "/readiness probe fail|liveness probe fail|insufficient (cpu|memory)|unschedulable|evicted|back-?off restarting|failedmount|failedscheduling|exit code \\d|secret [^.\\n]{0,30}not found|quota exceeded|node ?not ?ready|taint/",
+     "unless": "/possibl|might|could be|may be|for example|such as|e\\.g\\.|whether|cannot tell|can't tell|no way to know|hypoth|peut-être|pourrait|par exemple|éventuel|search[^.]*timed out/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "min_calls": 1,
+      "max_calls": 3,
+      "max_near_repeats": 0
+     },
+     "k8s_editor": {
+      "max_calls": 0
+     },
+     "k8s_cleaner": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "kt-http-recover",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "On the cluster `retail-mx-2`, the deployment `coupon-validator` in namespace `promo` has all its pods in CreateContainerConfigError. This machine has no access to the cluster `retail-mx-2`; only the k8s_investigator sub-agent has a kubeconfig context for it. Find out why and give me the cause in two sentences. Read-only: change nothing.",
+   "fake": {
+    "k8s_investigator": [
+     {
+      "times": 3,
+      "status": 502
+     },
+     {
+      "reply": "Finding (cluster retail-mx-2, namespace promo): `kubectl describe pod coupon-validator-64c5d8b7f-p9rjt` — Warning Failed: \"Error: couldn't find key hmac-seed in Secret promo/coupon-validator-keys\". `kubectl get secret coupon-validator-keys -o jsonpath='{.data}'` lists only the keys api-token and salt. Confidence: high."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "cause",
+     "required": true,
+     "match": "/hmac-seed/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "min_calls": 2,
+      "max_calls": 9
+     },
+     "k8s_editor": {
+      "max_calls": 0
+     },
+     "k8s_cleaner": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "kt-http-dead-fr",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "Sur le cluster `core-ams-2`, le déploiement `rules-engine` de l'espace de noms `risk` répond très lentement depuis ce matin. Cette machine n'a pas accès au cluster `core-ams-2` ; seul le sous-agent k8s_investigator a un contexte kubeconfig pour lui. Trouve pourquoi et donne-moi la cause en deux phrases. Lecture seule : ne modifie rien.",
+   "fake": {
+    "k8s_investigator": [
+     {
+      "status": 503
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "says-unverified",
+     "required": true,
+     "match": "/no evidence|not found|(does|do|did)(n't| not) (exist|return|find|answer|respond)|no such|(could|can)(n't|not| not) (be )?(determin|verif|find|found|confirm|establish|tell|identif|reach|read|check|obtain|retriev)|unable to (determine|verify|find|confirm|establish|tell|identify|reach|read|check|obtain|retrieve)|unverified|not verified|unconfirmed|not confirmed|unknown|introuvable|aucun(e)? (preuve|trace|élément|résultat|information|donnée|journal|log|réponse|documentation)|n'existe pas|n'a (pas|rien) (pu|trouvé|renvoyé|donné|répondu|fourni)|n'ai (pas|rien) (pu|trouvé|obtenu)|impossible (de|d')|non (vérifi|confirm)|pas (pu|été) (être )?(vérifi|confirm|établi|détermin|trouv)|inconnu|(fail|error|unavailable|échou|erreur|indisponible)\\w*/"
+    }
+   ],
+   "forbidden": [
+    {
+     "id": "invented-cause",
+     "match": "/cpu throttl|throttling|limite cpu|hpa|autoscal|garbage collect|latence réseau|noisy neighbo/",
+     "unless": "/possibl|might|could be|may be|for example|such as|e\\.g\\.|whether|cannot tell|can't tell|no way to know|hypoth|peut-être|pourrait|par exemple|éventuel|search[^.]*timed out/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "min_calls": 1,
+      "max_calls": 9
+     },
+     "k8s_editor": {
+      "max_calls": 0
+     },
+     "k8s_cleaner": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "kt-partial-followup",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "On the cluster `jobs-us-3`, the pods of deployment `rate-limiter` in namespace `edge-proxy` restart every few minutes. This machine has no access to the cluster `jobs-us-3`; only the k8s_investigator sub-agent has a kubeconfig context for it. Tell me (a) what restarts them and (b) the underlying reason. Two sentences. Read-only: change nothing.",
+   "fake": {
+    "k8s_investigator": [
+     {
+      "times": 1,
+      "reply": "Finding (cluster jobs-us-3, namespace edge-proxy): `kubectl describe pod rate-limiter-7d4b9f6c58-zk4hs` — Liveness probe failed: Get \"http://10.42.3.17:8080/livez\": context deadline exceeded (timeoutSeconds: 1), then \"Container rate-limiter failed liveness probe, will be restarted\"; 41 restarts. Confidence: high. I did not look at why /livez is slow."
+     },
+     {
+      "if_new_request": true,
+      "reply": "Finding (cluster jobs-us-3, namespace edge-proxy): the /livez handler pings Redis (`kubectl logs rate-limiter-7d4b9f6c58-zk4hs` — \"livez: redis PING took 4.8s\"). `kubectl logs redis-rl-sentinel-0` shows a failover loop: \"+sdown master redis-rl 10.42.1.9\" then \"+switch-master\" every two minutes, because redis-rl-1 and redis-rl-2 both claim the master role. Confidence: high."
+     },
+     {
+      "reply": "Finding (cluster jobs-us-3, namespace edge-proxy): `kubectl describe pod rate-limiter-7d4b9f6c58-zk4hs` — Liveness probe failed: Get \"http://10.42.3.17:8080/livez\": context deadline exceeded (timeoutSeconds: 1), then \"Container rate-limiter failed liveness probe, will be restarted\"; 41 restarts. Confidence: high. I did not look at why /livez is slow."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "restarter",
+     "required": true,
+     "match": "/liveness|livez/"
+    },
+    {
+     "id": "reason",
+     "required": true,
+     "match": "/redis|sentinel|failover/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "min_distinct": 2
+     },
+     "k8s_editor": {
+      "max_calls": 0
+     },
+     "k8s_cleaner": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "kt-partial-final",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "On the cluster `edge-apac-7`, namespace `iam-core`: (a) which image tag does the deployment `token-broker` run, and (b) does the Secret `token-broker-signing` hold a key named `jwk.json`? This machine has no access to the cluster `edge-apac-7`; only the k8s_investigator sub-agent has a kubeconfig context for it. One line each. Read-only: change nothing.",
+   "fake": {
+    "k8s_investigator": [
+     {
+      "reply": "Finding (cluster edge-apac-7, namespace iam-core): `kubectl get deploy token-broker -o jsonpath='{..image}'` — registry.corp.example/token-broker:0.19.4. Confidence: high.\nNot read: `kubectl get secret token-broker-signing` — Error from server (Forbidden): secrets \"token-broker-signing\" is forbidden: User \"oidc:investigator-ro\" cannot get resource \"secrets\" in API group \"\" in the namespace \"iam-core\". The read-only context has no access to Secrets; the key list could not be checked."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "tag",
+     "required": true,
+     "match": "/0\\.19\\.4/"
+    },
+    {
+     "id": "secret-unverified",
+     "required": true,
+     "match": "/forbidden|rbac|cannot (get|list|read)|not (allowed|permitted|authori[sz]ed)|no access|unverified|could not|unable|unknown/"
+    }
+   ],
+   "forbidden": [
+    {
+     "id": "claimed-key",
+     "match": "/(does |it )?(hold|holds|has|contains|includes)[^.\\n]{0,30}jwk\\.json|jwk\\.json[^.\\n]{0,20}(is present|exists)|\\byes\\b/",
+     "unless": "/forbidden|cannot|could not|unable|unverified|unknown|whether|not (allowed|permitted|authori[sz]ed)|no access/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "min_calls": 1,
+      "max_calls": 3,
+      "max_near_repeats": 0
+     },
+     "k8s_editor": {
+      "max_calls": 0
+     },
+     "k8s_cleaner": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "kt-conflict",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "On the cluster `retail-mx-2`, namespace `shop-web`: how many replicas does the Helm release `checkout-web` ask for, how many pods does its Deployment actually run, and what explains any gap? This machine has no access to the cluster `retail-mx-2`; only the k8s_investigator sub-agent has a kubeconfig context for it. Three short lines. Read-only: change nothing.",
+   "fake": {
+    "k8s_investigator": [
+     {
+      "when": "/(?s)helm.*(pods?|deployment|running|actual|live)|(pods?|deployment|running|actual|live).*helm/",
+      "reply": "Finding (cluster retail-mx-2, namespace shop-web): `helm get values checkout-web -a` — replicaCount: 6 (revision 31, deployed). Confidence: high.\nFinding (cluster retail-mx-2, namespace shop-web): `kubectl get deploy checkout-web` — 2/2 ready, spec.replicas: 2. `kubectl get hpa checkout-web` — minReplicas 2, maxReplicas 2, created by `kubectl autoscale` (no Helm labels, not part of the release). The HPA owns spec.replicas and pins it at 2. Confidence: high."
+     },
+     {
+      "when": "helm",
+      "reply": "Finding (cluster retail-mx-2, namespace shop-web): `helm get values checkout-web -a` — replicaCount: 6 (revision 31, deployed). Confidence: high."
+     },
+     {
+      "reply": "Finding (cluster retail-mx-2, namespace shop-web): `kubectl get deploy checkout-web` — 2/2 ready, spec.replicas: 2. `kubectl get hpa checkout-web` — minReplicas 2, maxReplicas 2, created by `kubectl autoscale` (no Helm labels, not part of the release). The HPA owns spec.replicas and pins it at 2. Confidence: high."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "asked",
+     "required": true,
+     "match": "/\\b6\\b|\\bsix\\b/"
+    },
+    {
+     "id": "running",
+     "required": true,
+     "match": "/\\b2\\b|\\btwo\\b/"
+    },
+    {
+     "id": "why",
+     "required": true,
+     "match": "/hpa|autoscal/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "min_calls": 1,
+      "max_calls": 4
+     },
+     "k8s_editor": {
+      "max_calls": 0
+     },
+     "k8s_cleaner": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "kt-mixed-dependent",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "Three questions on the cluster `core-fra-1`. This machine has no access to the cluster `core-fra-1`; only the k8s_investigator sub-agent has a kubeconfig context for it. (1) Which node hosts the pod `etl-coordinator-0` in namespace `dataflow`? (2) Which taints does that node carry? (3) Unrelated: which nodes of the cluster are cordoned? One line each. Read-only: change nothing.",
+   "fake": {
+    "k8s_investigator": [
+     {
+      "when": "/(?s)(etl-coordinator|taint).*cordon|cordon.*(etl-coordinator|taint)/",
+      "reply": "Finding (cluster core-fra-1, namespace dataflow): `kubectl get pod etl-coordinator-0 -o wide` — node wk-plum-17. Confidence: high.\nFinding (cluster core-fra-1): `kubectl describe node wk-plum-17` — Taints: node.kubernetes.io/disk-pressure:NoSchedule; condition DiskPressure=True (imagefs 91 % used). Confidence: high.\nFinding (cluster core-fra-1): `kubectl get nodes` — SchedulingDisabled on wk-plum-03 and wk-plum-11; the other 14 nodes are schedulable. Confidence: high."
+     },
+     {
+      "when": "/taint/",
+      "reply": "Finding (cluster core-fra-1, namespace dataflow): `kubectl get pod etl-coordinator-0 -o wide` — node wk-plum-17. Confidence: high.\nFinding (cluster core-fra-1): `kubectl describe node wk-plum-17` — Taints: node.kubernetes.io/disk-pressure:NoSchedule; condition DiskPressure=True (imagefs 91 % used). Confidence: high."
+     },
+     {
+      "when": "/cordon|schedulingdisabled|unschedulable/",
+      "reply": "Finding (cluster core-fra-1): `kubectl get nodes` — SchedulingDisabled on wk-plum-03 and wk-plum-11; the other 14 nodes are schedulable. Confidence: high."
+     },
+     {
+      "when": "/etl-coordinator/",
+      "reply": "Finding (cluster core-fra-1, namespace dataflow): `kubectl get pod etl-coordinator-0 -o wide` — node wk-plum-17. Confidence: high."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "node",
+     "required": true,
+     "match": "/wk-plum-17/"
+    },
+    {
+     "id": "taint",
+     "required": true,
+     "match": "/disk-pressure|diskpressure/"
+    },
+    {
+     "id": "cordoned",
+     "required": true,
+     "match": "/wk-plum-03/"
+    },
+    {
+     "id": "cordoned-2",
+     "required": true,
+     "match": "/wk-plum-11/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "min_calls": 2
+     },
+     "k8s_editor": {
+      "max_calls": 0
+     },
+     "k8s_cleaner": {
+      "max_calls": 0
+     }
+    },
+    "min_parallel": 2
+   }
+  },
+  {
+   "id": "kt-direct-self",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "Which sub-agents do you coordinate, and which of them is the one that removes leftover debug resources? Names only.",
+   "fake": {
+    "k8s_investigator": []
+   },
+   "facts": [
+    {
+     "id": "investigator",
+     "required": true,
+     "match": "/k8s[_ -]?investigator/"
+    },
+    {
+     "id": "cleaner",
+     "required": true,
+     "match": "/k8s[_ -]?cleaner/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "max_calls": 0
+     },
+     "k8s_editor": {
+      "max_calls": 0
+     },
+     "k8s_cleaner": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "kt-direct-concept-fr",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "En une phrase, sans interroger de cluster : à quoi sert l'option `--dry-run=server` de `kubectl apply` ?",
+   "fake": {
+    "k8s_investigator": []
+   },
+   "facts": [
+    {
+     "id": "answer",
+     "required": true,
+     "match": "/sans (rien )?(l'|les )?(appliquer|persister|enregistrer|modifier|créer|écrire)|ne (modifie|persiste|crée|change|enregistre)|n'est pas (persist|appliqu|enregistr)|not persist|without (persisting|applying|changing)|simul|valid/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "max_calls": 0
+     },
+     "k8s_editor": {
+      "max_calls": 0
+     },
+     "k8s_cleaner": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "kt-diagnose-no-fix",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "On the cluster `stg-nordic-4`, the site banner served by deployment `promo-banner` in namespace `web-front` has disappeared. This machine has no access to the cluster `stg-nordic-4`; only the k8s_investigator sub-agent has a kubeconfig context for it. Find out why and give me the cause in two sentences. Read-only: change nothing.",
+   "fake": {
+    "k8s_investigator": [
+     {
+      "reply": "Finding (cluster stg-nordic-4, namespace web-front): `kubectl get deploy promo-banner` — 0/0 ready, spec.replicas: 0. `kubectl describe deploy promo-banner` — event \"Scaled down replica set promo-banner-5c8d7b6f4 to 0 from 3\"; annotation kubernetes.io/change-cause: \"kubectl scale deployment promo-banner --replicas=0\". No HPA targets it and the image, ConfigMap and Service are unchanged. Confidence: high."
+     }
+    ],
+    "k8s_editor": [
+     {
+      "reply": "Applied: `kubectl scale deployment promo-banner --replicas=3` on stg-nordic-4; 3/3 pods ready."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "cause",
+     "required": true,
+     "match": "/replicas?[^.\\n]{0,40}\\b(0|zero)\\b|scaled? (down )?to (0|zero)|(0|zero) replicas?|--replicas=0/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "min_calls": 1,
+      "max_calls": 2
+     },
+     "k8s_editor": {
+      "max_calls": 0
+     },
+     "k8s_cleaner": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "kt-audit-decoy",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "Policy audit on the cluster `sec-lab-9`, namespace `tenant-kiwi`: list every Pod that runs at least one privileged container (any container type). This machine has no access to the cluster `sec-lab-9`; only the k8s_investigator sub-agent has a kubeconfig context for it. Output exactly one line `VIOLATING: <pod name>` per violating pod and nothing else. Read-only: change nothing.",
+   "fake": {
+    "k8s_investigator": [
+     {
+      "when": "/debug-toolbox/",
+      "reply": "Finding (cluster sec-lab-9, namespace tenant-kiwi): `kubectl get pod debug-toolbox -o yaml` — spec.containers[0].securityContext.privileged: false, allowPrivilegeEscalation: false; no initContainers, no ephemeralContainers. Compliant. Confidence: high."
+     },
+     {
+      "reply": "Audit (cluster sec-lab-9, namespace tenant-kiwi, 14 pods read with `kubectl get pods -o json`):\n- log-shipper-x7 — spec.containers[0].securityContext.privileged: true\n- node-probe-2 — spec.initContainers[0].securityContext.privileged: true (the main container is not privileged)\n- debug-toolbox — flagged on its name and its `hostPID`-style purpose; securityContext field not inspected\nThe 11 other pods have privileged unset or false in containers, initContainers and ephemeralContainers."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "shipper",
+     "required": true,
+     "match": "/VIOLATING:\\s*`?log-shipper-x7/"
+    },
+    {
+     "id": "probe",
+     "required": true,
+     "match": "/VIOLATING:\\s*`?node-probe-2/"
+    }
+   ],
+   "forbidden": [
+    {
+     "id": "decoy-flagged",
+     "match": "/VIOLATING:\\s*`?debug-toolbox/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "min_calls": 1,
+      "max_calls": 4
+     },
+     "k8s_editor": {
+      "max_calls": 0
+     },
+     "k8s_cleaner": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "kt-low-confidence",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "On the cluster `jobs-us-3`, the pod `ledger-export-0` in namespace `finance-batch` restarted once during the night. This machine has no access to the cluster `jobs-us-3`; only the k8s_investigator sub-agent has a kubeconfig context for it. Find out why and give me the cause in two sentences. Read-only: change nothing.",
+   "fake": {
+    "k8s_investigator": [
+     {
+      "reply": "Finding (cluster jobs-us-3, namespace finance-batch): `kubectl describe pod ledger-export-0` — Restart Count: 1, Last State: Terminated, Reason: Error, no message. `kubectl logs --previous` returns \"previous terminated container not found\" (the log was already rotated) and the namespace events have expired. The only trace left is a node-level one: `kubectl describe node wk-fig-08` shows the kubelet was restarted by an OS patch run in the same window. Possible cause: the kubelet restart killed the container. Confidence: low — nothing ties the two together beyond timing."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "lead",
+     "required": true,
+     "match": "/kubelet|os patch|node[^.\\n]{0,30}(restart|patch)/"
+    },
+    {
+     "id": "hedged",
+     "required": true,
+     "match": "/low confidence|confidence[^.\\n]{0,20}low|not confirmed|unconfirmed|unverified|likely|probabl|possibl|\\bmay\\b|might|uncertain|cannot be (tied|confirmed|linked)|could not be (tied|confirmed|linked)|suspect|appears|seems|tentative|only[^.\\n]{0,30}timing|circumstantial/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "min_calls": 1,
+      "max_calls": 3,
+      "max_near_repeats": 0
+     },
+     "k8s_editor": {
+      "max_calls": 0
+     },
+     "k8s_cleaner": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "kt-fanout-one-fails-fr",
+   "squad": "kubernetes",
+   "cwd": "sandbox",
+   "prompt": "Deux vérifications sans rapport sur le cluster `core-ams-2`, auquel cette machine n'a pas accès (seul le sous-agent k8s_investigator a un contexte kubeconfig pour lui). (1) Combien de pods tournent dans l'espace de noms `search-infra` ? (2) Quelle est la dernière ligne des journaux du pod `geo-indexer-0` de l'espace de noms `geo` ? Une ligne chacun. Lecture seule : ne modifie rien.",
+   "fake": {
+    "k8s_investigator": [
+     {
+      "when": "/geo-indexer/",
+      "status": 503
+     },
+     {
+      "when": "/search-infra/",
+      "reply": "Finding (cluster core-ams-2, namespace search-infra): `kubectl get pods --field-selector=status.phase=Running --no-headers | wc -l` — 23. Confidence: high."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "count",
+     "required": true,
+     "match": "/\\b23\\b/"
+    },
+    {
+     "id": "says-unverified",
+     "required": true,
+     "match": "/no evidence|not found|(does|do|did)(n't| not) (exist|return|find|answer|respond)|no such|(could|can)(n't|not| not) (be )?(determin|verif|find|found|confirm|establish|tell|identif|reach|read|check|obtain|retriev)|unable to (determine|verify|find|confirm|establish|tell|identify|reach|read|check|obtain|retrieve)|unverified|not verified|unconfirmed|not confirmed|unknown|introuvable|aucun(e)? (preuve|trace|élément|résultat|information|donnée|journal|log|réponse|documentation)|n'existe pas|n'a (pas|rien) (pu|trouvé|renvoyé|donné|répondu|fourni)|n'ai (pas|rien) (pu|trouvé|obtenu)|impossible (de|d')|non (vérifi|confirm)|pas (pu|été) (être )?(vérifi|confirm|établi|détermin|trouv)|inconnu|(fail|error|unavailable|échou|erreur|indisponible)\\w*/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "k8s_investigator": {
+      "min_calls": 2
+     },
+     "k8s_editor": {
+      "max_calls": 0
+     },
+     "k8s_cleaner": {
+      "max_calls": 0
+     }
+    }
+   }
+  }
+ ]
+}

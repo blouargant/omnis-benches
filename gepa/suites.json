@@ -1,0 +1,11 @@
+{
+ "leader": {"squad": "system", "fake": ["investigator", "summariser", "helper", "linux_admin"],
+            "train": ["tasks-leader-fake-train.json"], "val": ["tasks-leader-fake.json"],
+            "heldout": ["tasks-leader-real.json", "tasks-leader-fake-direct.json"]},
+ "k8s_leader": {"squad": "kubernetes", "fake": ["k8s_investigator", "k8s_editor", "k8s_cleaner"],
+                "train": ["tasks-leader-fake-train-k8s.json"], "val": ["tasks-leader-fake-k8s.json"],
+                "heldout": []},
+ "coder": {"squad": "coding", "fake": ["code_scout", "code_docs", "reviewer", "refactorer", "agentmd_reviewer"],
+           "train": ["tasks-leader-fake-train-coding.json"], "val": ["tasks-leader-fake-coding.json"],
+           "heldout": []}
+}
