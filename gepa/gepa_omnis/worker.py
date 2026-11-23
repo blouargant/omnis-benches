@@ -146,6 +146,9 @@ class Worker:
                 raise ReloadError(f"{self.label}: {name} is not the text the server runs")
         wanted = {components.parse(n)[1]: t for n, t in candidate.items()
                   if components.parse(n)[0] == "prompt"}
+        for pid, text in wanted.items():
+            if not text.strip():        # omnis drops a blank override and runs the default
+                raise ReloadError(f"{self.label}: prompt:{pid} is blank")
         if wanted:
             served_prompts = {e.get("id"): e for e in self.prompts()}
             for pid, text in wanted.items():

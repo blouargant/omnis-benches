@@ -137,3 +137,10 @@ def test_apply_accepts_served_prompt_override(tmp_path, stub):
     stub.reloads.append((200, {"generation": 4}))
     stub.prompts = [{"id": "block.choice", "default": "d", "override": "new\n", "agents": ["leader"]}]
     assert worker(tmp_path, stub).apply({"prompt:block.choice": "new"}) == 4
+
+
+def test_apply_refuses_blank_prompt_text(tmp_path, stub):
+    stub.reloads.append((200, {"generation": 4}))
+    stub.prompts = [{"id": "block.choice", "default": "d", "agents": ["leader"]}]
+    with pytest.raises(ReloadError, match="blank"):
+        worker(tmp_path, stub).apply({"prompt:block.choice": "  \n"})
