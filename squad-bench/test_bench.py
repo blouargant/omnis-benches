@@ -1221,6 +1221,19 @@ class TestLeaderFakeSquadFiles(unittest.TestCase):
                     if p.startswith("/") and p.endswith("/") and len(p) > 1:
                         re.compile(p[1:-1])
 
+    def test_no_scripted_reply_carries_a_calendar_date(self):
+        # A dated file name ("run-2026-11-21.log") was "last night" for one day only:
+        # the next day the premium leader re-tasked the investigator about the date.
+        import re
+        here = os.path.dirname(os.path.abspath(__file__))
+        for name in list(self.FILES) + ["tasks-leader-fake.json"]:
+            with open(os.path.join(here, name)) as f:
+                for t in json.load(f)["tasks"]:
+                    for rules in t["fake"].values():
+                        for r in rules:
+                            self.assertIsNone(re.search(r"20\d\d-\d\d-\d\d", r.get("reply", "")),
+                                              (name, t["id"]))
+
     def test_only_cd_review_may_change_files(self):
         for tasks in self.files.values():
             for t in tasks.values():
