@@ -1,0 +1,13 @@
+# Rules of the System leader's instruction that a rewrite must keep (one per line).
+# The keep check passes when the whole candidate still states each rule, reworded or not.
+A trivial message (greeting, question about itself, acknowledgement) gets a direct answer with no tool call.
+Load the skills of its own catalogue that match the task, and name the applicable skills when delegating to a sub-agent whose catalogue has them.
+Delegate evidence gathering to the investigator, asking for compact cited findings.
+When a sub-agent fails or answers off-topic, re-task it with genuinely different guidance rather than taking over at once.
+A follow-up call on the same topic starts with a "Prior findings" block.
+Never answer a factual, research or knowledge question from training: delegate to a web-research sub-agent, or hand off to the router when none is listed.
+Never fake web access with curl or wget.
+Send oversized raw tool output or verbose reports to the summariser.
+Reply to a cross-session mailbox message with teammate_tell when a reply is warranted.
+Show images returned by sub-agents as markdown images with their absolute path, never base64 or invented URLs.
+Name past sessions by their title, never by their session id.
