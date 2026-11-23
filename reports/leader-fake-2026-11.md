@@ -85,6 +85,51 @@ verdicts of the rules as they were during the run.
 - **Bench.** Extend to `k8s_leader` and `coder`, and raise the sample count
   before turning any of these counts into a rate.
 
+## Third run — rewritten System leader instruction (2026-11-23)
+
+omnis branch `fix/system-leader-delegation` (`c03fefd`) rewrites the leader's
+delegation rules: evidence questions go to the investigator first, one call per
+independent question in the same response, one re-task then stop. Same
+scenarios, same arms. Records: `leader-fake-2026-11-v3-balanced.jsonl` (5
+samples), `leader-fake-2026-11-v3b-premium.jsonl` (3 samples). Cost $0.66.
+
+| Scenario | balanced, old instruction | balanced, new | premium, old | premium, new |
+|---|---|---|---|---|
+| `lf-unprompted`: delegated | 0/3 | **0/5** | 2/3 | 3/3 |
+| `lf-fanout`: investigator calls | 1, 1, 1 | **1, 1, 1, 1, 1** | 2, 2, 2 | 2, 2, 2 |
+| `lf-empty`: investigator calls | 6, 4, 4 | **4, 4, 4, 4, 5** | 2, 2, 2 | 2, 2, 2 |
+| `lf-good`: investigator calls | 1, 1, 1 | 1, 1, 1, 1, 2 | 1, 1, 1 | 1, 1, 1 |
+| `lf-reword`: investigator calls | 2, 2, 2 | 2, 2, 2, 3, 3 | 2, 2, 2 | 2, 2, 2 |
+
+- **The rewrite changes nothing on `balanced`.** It still never delegates
+  unprompted, still sends one combined request for two questions, still makes
+  four or five calls on empty evidence although the rule now says "re-task it
+  ONCE". The claim made in `leader-fake-k8s-coding-2026-11.md`, that the System
+  failure is "largely an instruction problem", is wrong in that form: the
+  wording of the system instruction is not what `balanced` follows.
+- **`premium` is unchanged**, 15 of 15 runs pass, and it delegated unprompted
+  in 3 of 3 (2 of 3 before; too few samples to call it a gain).
+- **Likely reason `balanced` delegates in the Kubernetes squad** (not verified):
+  there the leader first loads the `k8s-triage` skill, whose text tells it to
+  delegate evidence gathering. That instruction arrives in a tool result right
+  before the decision, not at the top of a long system prompt. Every Kubernetes
+  delegation in the logs follows a `load_skill`.
+
+### A bench artefact found on the way
+
+`leader-fake-2026-11-v3-premium.jsonl` shows one extra investigator call on
+`lf-good` and `lf-fanout`. The scripted finding cited `run-2026-11-21.log`, and
+the run took place on the 23rd: the leader re-tasked the investigator about
+"last night". Scripted replies no longer carry a calendar date (a test forbids
+it); `v3b` is the re-run. Keep `v3-premium` only as the record of the artefact.
+
+### What to try next
+
+A rule in the system instruction does not reach `balanced`. Two things did work
+elsewhere in omnis for the same model: a short reminder placed next to the user
+message (collection memory), and a rule delivered through a skill the agent
+loads (Kubernetes). Either can be measured with this bench at about $0.30 a run.
+
 ## First run — evidence absent from the host
 
 Records: `leader-fake-2026-11-balanced.jsonl`, `leader-fake-2026-11-premium.jsonl`.
