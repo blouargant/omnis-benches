@@ -26,14 +26,24 @@ def _file_texts(omnis_src, name, text):
     raise NotImplementedError(name)
 
 
+def _diff_lines(old, new, a, b):
+    """unified_diff with git's marker for a last line that has no newline."""
+    out = []
+    for line in difflib.unified_diff(old.splitlines(keepends=True), new.splitlines(keepends=True), a, b):
+        if line.endswith("\n"):
+            out.append(line)
+        else:
+            out += [line + "\n", "\\ No newline at end of file\n"]
+    return out
+
+
 def patch(omnis_src, seeds, best):
     out = []
     for name in sorted(best):
         if best[name] == seeds.get(name):
             continue
         rel, old, new = _file_texts(omnis_src, name, best[name])
-        out += difflib.unified_diff(old.splitlines(keepends=True), new.splitlines(keepends=True),
-                                    f"a/{rel}", f"b/{rel}")
+        out += _diff_lines(old, new, f"a/{rel}", f"b/{rel}")
     return "".join(out)
 
 

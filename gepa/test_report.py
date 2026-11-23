@@ -36,3 +36,15 @@ def test_report_contains_verdict_and_diff(tmp_path):
     assert path.name == "gepa-leader-system-2026-11-23.md"
     assert "Adopt: **yes**" in text and "| leader | balanced |" in text and "better" in text
     assert "+New instruction." in text and "$13.75" in text
+
+
+def test_patch_applies_with_git_for_two_components(tmp_path):
+    import subprocess
+    src = omnis(tmp_path)
+    subprocess.run(["git", "init", "-q"], cwd=src, check=True)
+    best = {"instruction:leader": "New instruction.", "turn_reminder:leader": "new"}   # no final newline
+    p = R.patch(src, SEEDS, best)
+    (tmp_path / "p.diff").write_text(p)
+    r = subprocess.run(["git", "apply", "--check", str(tmp_path / "p.diff")], cwd=src,
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr

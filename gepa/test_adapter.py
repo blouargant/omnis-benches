@@ -47,10 +47,35 @@ def test_evaluate_retries_infra_once(tmp_path):
     assert adapter(tmp_path, [w]).evaluate(items("a"), {}).scores == [1.0]
 
 
-def test_evaluate_infra_twice_scores_zero_and_marks(tmp_path):
+def test_evaluate_infra_twice_stops_the_run(tmp_path):
+    from gepa_omnis.score import InfraError
     w = FakeWorker({"a": [[rec(fake_error="x")], [rec(status="error")]]})
-    out = adapter(tmp_path, [w]).evaluate(items("a"), {}, capture_traces=True)
-    assert out.scores == [0.0] and out.trajectories[0]["infra"] is True
+    with pytest.raises(InfraError, match="a"):
+        adapter(tmp_path, [w]).evaluate(items("a"), {}, capture_traces=True)
+
+
+def test_bench_timeout_counts_as_infra(tmp_path):
+    import subprocess
+
+    class Slow(FakeWorker):
+        calls = 0
+
+        def run(self, item, repeat):
+            Slow.calls += 1
+            if Slow.calls == 1:
+                raise subprocess.TimeoutExpired("bench", 1)
+            return [rec()]
+
+    assert adapter(tmp_path, [Slow({})]).evaluate(items("a"), {}).scores == [1.0]
+
+
+def test_other_errors_reach_the_caller(tmp_path):
+    class Broken(FakeWorker):
+        def run(self, item, repeat):
+            raise ValueError("task a has no gate")
+
+    with pytest.raises(ValueError, match="no gate"):
+        adapter(tmp_path, [Broken({})]).evaluate(items("a"), {})
 
 
 def test_reflective_dataset_only_reached_agents(tmp_path):

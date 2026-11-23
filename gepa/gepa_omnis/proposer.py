@@ -58,8 +58,12 @@ class GuardedProposer:
             return (f"it is too long ({len(text)} characters; the limit is "
                     f"{int(1.3 * len(self.seeds[name]))})")
         trial = dict(candidate, **{name: text})
-        scope = {k: v for k, v in trial.items() if self.reach.get(k, set()) & self.reach.get(name, set())}
-        dropped = guards.dropped_rules(scope, self.keep.get(name, []), self.keep_check)
+        sharing = [k for k in trial if self.reach.get(k, set()) & self.reach.get(name, set())]
+        scope = {k: trial[k] for k in sharing}
+        # Every rule of every component the same agents read: a rule may move
+        # between them, but must not be lost from all of them.
+        rules = [r for k in sharing for r in self.keep.get(k, [])]
+        dropped = guards.dropped_rules(scope, rules, self.keep_check)
         if dropped:
             return "it no longer states these rules: " + " | ".join(dropped)
         return None
@@ -78,6 +82,9 @@ class GuardedProposer:
                     "dataset_with_feedback": records, "prompt_template": template})
                 raw = self.reflection(prompt)
                 text = InstructionProposalSignature.output_extractor(raw)["new_instruction"]
+                # GEPA's extractor strips the text; keep the seed's final newline.
+                if self.seeds[name].endswith("\n") and text and not text.endswith("\n"):
+                    text += "\n"
                 reason = self._reject_reason(name, raw, text, candidate)
                 self._note(component=name, attempt=attempt,
                            verdict="accepted" if reason is None else "rejected",

@@ -25,7 +25,7 @@ from gepa_omnis.ledger import DollarStopper, Ledger  # noqa: E402
 DEFAULTS = {"omnis_src": "../omnis", "repeat_search": 2, "repeat_heldout": 5, "workers": 2,
             "max_metric_calls": 150, "ceiling_usd": 60, "reflection_ref": "premium",
             "keep_check_ref": "hosted", "reflection_minibatch_size": 3, "seed": 0,
-            "heldout_ok_missing": [], "port_base": 18900}
+            "heldout_ok_missing": [], "port_base": 18900, "search_share": 0.5}
 
 
 def load_config(path):
@@ -55,10 +55,22 @@ def prepare(cfg):
             "deny": deny, "keep": keep, "leaders": leaders, "fake": suites.fake_agents(agents)}
 
 
-def _workers(cfg, prep, workdir, model, n):
+def search_ceiling(cfg):
+    """The search stops here; the rest of the ceiling is kept for the held-out check."""
+    return cfg["ceiling_usd"] * cfg["search_share"]
+
+
+def split_heldout(items):
+    """(scripted, real): tasks with a `fake` script run on fake sub-agents, the
+    others on the real squad."""
+    return [i for i in items if "fake" in i.task], [i for i in items if "fake" not in i.task]
+
+
+def _workers(cfg, prep, workdir, model, n, fake=True, first=0):
     from gepa_omnis.worker import Worker
-    return [Worker(i, workdir, cfg["omnis_ref"], model, prep["leaders"], prep["fake"], prep["src"],
-                   port_base=cfg["port_base"]) for i in range(n)]
+    return [Worker(first + i, workdir, cfg["omnis_ref"], model, prep["leaders"],
+                   prep["fake"] if fake else [], prep["src"], port_base=cfg["port_base"])
+            for i in range(n)]
 
 
 def _start(workers):
@@ -108,6 +120,36 @@ def _heldout(adapter, items, candidate, repeat):
     return by_task
 
 
+def _heldout_phase(cfg, prep, out, ledger, best):
+    """Seed and best on the held-out tasks, on every model: scripted tasks on
+    fake sub-agents, the others on the real squad (its own workers, no fakes)."""
+    from gepa_omnis.adapter import OmnisAdapter
+    scripted, real = split_heldout(prep["split"]["heldout"])
+    base, cand = {}, {}
+    for model in cfg["models"]:
+        for items, fake, first in ((scripted, True, 0), (real, False, cfg["workers"])):
+            if not items:
+                continue
+            workers = _workers(cfg, prep, out / "work", model, cfg["workers"], fake, first)
+            try:
+                _start(workers)
+                ad = OmnisAdapter(workers, cfg["repeat_heldout"], ledger, prep["reach"])
+                ad.records_path = out / "heldout-records.jsonl"
+                for agent in sorted(prep["agents"]):
+                    its = [i for i in items if i.agent == agent]
+                    if not its:
+                        continue
+                    if ledger.spent() >= cfg["ceiling_usd"]:
+                        raise SystemExit(f"ceiling ${cfg['ceiling_usd']} reached during the held-out "
+                                         "check; raise ceiling_usd and resume")
+                    for store, c in ((base, prep["seeds"]), (cand, best)):
+                        store.setdefault((agent, model), {}).update(
+                            _heldout(ad, its, c, cfg["repeat_heldout"]))
+            finally:
+                _stop(workers)
+    return base, cand
+
+
 def cmd_run(cfg):
     import gepa
     from gepa_omnis import llm
@@ -134,24 +176,13 @@ def cmd_run(cfg):
             adapter=adapter, reflection_lm=reflection, custom_candidate_proposer=proposer,
             frontier_type="instance", reflection_minibatch_size=cfg["reflection_minibatch_size"],
             max_metric_calls=cfg["max_metric_calls"],
-            stop_callbacks=[DollarStopper(ledger, cfg["ceiling_usd"])],
+            stop_callbacks=[DollarStopper(ledger, search_ceiling(cfg))],
             run_dir=str(out / "gepa"), seed=cfg["seed"])
         best = result.best_candidate
         (out / "best.json").write_text(json.dumps(best, indent=1, ensure_ascii=False), encoding="utf-8")
-        base, cand = {}, {}
-        heldout = prep["split"]["heldout"]
-        for model in cfg["models"]:
-            if model != workers[0].leader_model:
-                for w in workers:
-                    w.restart_model(model)
-            for agent in sorted(prep["agents"]):
-                its = [i for i in heldout if i.agent == agent]
-                if not its:
-                    continue
-                base[(agent, model)] = _heldout(adapter, its, prep["seeds"], cfg["repeat_heldout"])
-                cand[(agent, model)] = _heldout(adapter, its, best, cfg["repeat_heldout"])
     finally:
         _stop(workers)
+    base, cand = _heldout_phase(cfg, prep, out, ledger, best)
     decision = verdict.decide(base, cand)
     patch_text = report.patch(prep["src"], prep["seeds"], best)
     (out / "best.patch").write_text(patch_text, encoding="utf-8")

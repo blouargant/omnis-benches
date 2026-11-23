@@ -60,3 +60,25 @@ def test_proposer_rejects_dropped_rule(tmp_path):
 def test_template_has_gepa_placeholders():
     assert "<curr_param>" in P.REFLECTION_TEMPLATE and "<side_info>" in P.REFLECTION_TEMPLATE
     assert "niche and domain specific factual information" not in P.REFLECTION_TEMPLATE
+
+
+def test_accepted_text_keeps_seed_trailing_newline(tmp_path):
+    seeds = dict(SEEDS, **{"instruction:leader": SEEDS["instruction:leader"] + "\n"})
+    p = P.GuardedProposer(Scripted("```\nDelegate evidence early.\n```"), lambda q: "YES", seeds,
+                          set(), {}, {k: {"leader"} for k in seeds}, tmp_path / "p.jsonl")
+    out = p(dict(seeds), DATASET, ["instruction:leader"])
+    assert out["instruction:leader"] == "Delegate evidence early.\n"
+
+
+def test_keep_lists_of_all_sharing_components_are_checked(tmp_path):
+    asked = []
+
+    def keep_check(prompt):
+        asked.append(prompt)
+        return "YES"
+
+    p = P.GuardedProposer(Scripted("```\nDelegate evidence early.\n```"), keep_check, SEEDS, set(),
+                          {"instruction:leader": ["Rule A."], "turn_reminder:leader": ["Rule B."]},
+                          {k: {"leader"} for k in SEEDS}, tmp_path / "p.jsonl")
+    p(dict(SEEDS), DATASET, ["instruction:leader"])
+    assert any("Rule B." in q for q in asked) and any("Rule A." in q for q in asked)

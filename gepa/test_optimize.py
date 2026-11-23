@@ -54,3 +54,17 @@ def test_gepa_loop_with_stub_workers(tmp_path):
                         max_metric_calls=12, run_dir=str(tmp_path / "run"), seed=0)
     assert res.best_candidate["instruction:leader"] == "Coordinate; delegate first."
     assert max(res.val_aggregate_scores) == 1.0
+
+
+def test_search_ceiling_reserves_heldout(tmp_path):
+    cfg = tmp_path / "run.json"
+    cfg.write_text(json.dumps({"name": "x", "omnis_ref": "develop", "ceiling_usd": 60,
+                               "components": ["instruction:leader"], "models": ["balanced"]}))
+    assert optimize.search_ceiling(optimize.load_config(cfg)) == 30
+
+
+def test_split_heldout_by_script():
+    from gepa_omnis.suites import Item
+    its = [Item("leader", "a.json", "s", {"fake": {}}), Item("leader", "b.json", "r", {})]
+    scripted, real = optimize.split_heldout(its)
+    assert [i.task_id for i in scripted] == ["s"] and [i.task_id for i in real] == ["r"]

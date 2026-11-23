@@ -16,9 +16,13 @@ plan: `docs/superpowers/plans/2026-11-23-gepa-optimizer.md`.
    reload that does not take stops the run). Proposals come from the reflection
    model (`premium`) and are refused when they drop a rule of `keep/`, name a
    scenario detail, or grow past +30 % of the seed.
-4. Stops at `max_metric_calls` or `ceiling_usd`, whichever first.
+4. Stops at `max_metric_calls` or at `search_share` (default half) of `ceiling_usd`,
+   whichever first; the rest is kept for the held-out check, which aborts if it
+   reaches the ceiling. A task that fails twice for infrastructure reasons
+   (bench, gateway, fake server) stops the run: fix and resume.
 5. Runs the seed and the best candidate on the **held-out** tasks, on every
-   model of the run (`repeat_heldout` times), and decides: adopt when no
+   model of the run (`repeat_heldout` times) — scripted tasks on fake
+   sub-agents, the others (e.g. `tasks-leader-real.json`) on the real squad — and decides: adopt when no
    (agent, model) falls below the seed's 90 % bootstrap interval and one
    rises above it.
 6. Writes `reports/gepa-<name>-<date>.md` and `gepa/out/<name>/best.patch`.

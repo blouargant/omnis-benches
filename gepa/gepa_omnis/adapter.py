@@ -1,5 +1,6 @@
 """GEPA adapter: evaluate a candidate on omnis bench workers."""
 import hashlib
+import subprocess
 import json
 import logging
 import threading
@@ -28,11 +29,11 @@ class OmnisAdapter:
                                     "gepa_agent": item.agent}, ensure_ascii=False) + "\n")
 
     def _run_item(self, worker, item):
-        """(score, records, infra) — an all-infra item is run once more, then scored 0."""
+        """(score, records, infra) — an all-infra item is run once more, then the run stops."""
         for attempt in (1, 2):
             try:
                 recs = worker.run(item, self.repeat)
-            except RuntimeError as e:
+            except (RuntimeError, subprocess.TimeoutExpired, OSError) as e:
                 log.warning("bench run failed for %s: %s", item.task_id, e)
                 recs = [{"status": "error", "error": str(e)}]
             for r in recs:
@@ -41,7 +42,10 @@ class OmnisAdapter:
                 return score.task_score(recs), recs, False
             except score.InfraError:
                 log.warning("infrastructure failure on %s (attempt %d)", item.task_id, attempt)
-        return 0.0, recs, True
+        # Twice: the bench or the gateway is down. Stop (the run resumes from its
+        # last checkpoint) rather than score the candidate on a failure not its own.
+        raise score.InfraError(f"task {item.task_file}:{item.task_id} failed twice for "
+                               "infrastructure reasons; fix it and resume the run")
 
     def evaluate(self, batch, candidate, capture_traces=False):
         errors = []
@@ -61,16 +65,22 @@ class OmnisAdapter:
             raise errors[0]
 
         results = [None] * len(batch)
+        failures = []
 
         def drain(wi, worker):
-            for i in range(wi, len(batch), len(self.workers)):
-                results[i] = self._run_item(worker, batch[i])
+            try:
+                for i in range(wi, len(batch), len(self.workers)):
+                    results[i] = self._run_item(worker, batch[i])
+            except Exception as e:      # re-raised below with its own message
+                failures.append(e)
 
         runners = [threading.Thread(target=drain, args=(wi, w)) for wi, w in enumerate(self.workers)]
         for t in runners:
             t.start()
         for t in runners:
             t.join()
+        if failures:
+            raise failures[0]
 
         tag = hashlib.sha1(json.dumps(candidate, sort_keys=True).encode()).hexdigest()[:10]
         scores, outputs, trajs, objs = [], [], [], []

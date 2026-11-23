@@ -54,19 +54,34 @@ class Worker:
         self._fake_proc = None
 
     # -- lifecycle ---------------------------------------------------------------
+    def build_base(self):
+        """The overlay every candidate is written on top of. Without fakes (the
+        real-squad held-out tasks) it only moves the leaders to the run's model."""
+        import shutil
+        if self.base.exists():
+            shutil.rmtree(self.base)
+        if self.fake:
+            if str(SQUAD_BENCH) not in sys.path:
+                sys.path.insert(0, str(SQUAD_BENCH))
+            import fake_overlay
+            fake_overlay.build_overlay(self.omnis_src, self.fake, self.fake_port, self.base,
+                                       self.leaders, self.leader_model)
+            return
+        self.base.mkdir(parents=True)
+        (self.base / "models.json").write_text(json.dumps({"override_model_enabled": False}))
+        for name in self.leaders:
+            p = self.base / "registry" / "agents" / name / "agent.json"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps({"model_ref": self.leader_model}))
+
     def start(self):
         self.arm.mkdir(parents=True, exist_ok=True)
-        log = open(self.arm / "fake.log", "a")
-        self._fake_proc = subprocess.Popen(
-            [sys.executable, str(SQUAD_BENCH / "fake_subagents.py"), str(self.fake_port)],
-            stdout=log, stderr=subprocess.STDOUT)
-        sys.path.insert(0, str(SQUAD_BENCH))
-        import fake_overlay
-        if self.base.exists():
-            import shutil
-            shutil.rmtree(self.base)
-        fake_overlay.build_overlay(self.omnis_src, self.fake, self.fake_port, self.base,
-                                   self.leaders, self.leader_model)
+        if self.fake:
+            with open(self.arm / "fake.log", "a") as log:
+                self._fake_proc = subprocess.Popen(
+                    [sys.executable, str(SQUAD_BENCH / "fake_subagents.py"), str(self.fake_port)],
+                    stdout=log, stderr=subprocess.STDOUT)
+        self.build_base()
         env = dict(os.environ, MODEL="tiered", OVERLAY=str(self.base),
                    OMNIS_SRC=str(self.omnis_src))
         subprocess.run(["bash", str(SQUAD_BENCH / "setup-ab.sh"), str(self.workdir), self.label,
@@ -107,9 +122,21 @@ class Worker:
         gen = body.get("generation", 0)
         if gen <= self.generation:
             raise ReloadError(f"{self.label}: reload kept generation {gen} (was {self.generation})")
-        warnings = _http("GET", self.url + "/api/config/parsed/agent")[1].get("warnings") or []
+        code, parsed = _http("GET", self.url + "/api/config/parsed/agent")
+        if code != 200:
+            raise ReloadError(f"{self.label}: reading the config after reload failed ({code})")
+        warnings = parsed.get("warnings") or []
         if warnings:
             raise ReloadError(f"{self.label}: config warnings after reload: {'; '.join(warnings)}")
+        served = {a.get("name"): a for a in (parsed.get("data") or {}).get("agents") or []
+                  if isinstance(a, dict)}
+        for name, text in candidate.items():
+            kind, target = components.parse(name)
+            if kind not in ("instruction", "turn_reminder"):
+                continue        # skills are not served by this route
+            got = (served.get(target) or {}).get(kind) or ""
+            if got.strip() != text.strip():
+                raise ReloadError(f"{self.label}: {name} is not the text the server runs")
         self.generation = gen
         return gen
 
