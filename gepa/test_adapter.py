@@ -72,3 +72,12 @@ def test_costs_go_to_ledger(tmp_path):
 def test_reload_error_propagates(tmp_path):
     with pytest.raises(ReloadError):
         adapter(tmp_path, [FakeWorker({}, fail_reload=True)]).evaluate(items("a"), {})
+
+
+def test_records_are_appended_with_candidate_tag(tmp_path):
+    import json
+    ad = adapter(tmp_path, [FakeWorker({"a": [[rec()]]})])
+    ad.records_path = tmp_path / "records.jsonl"
+    ad.evaluate(items("a"), {"instruction:leader": "x"})
+    row = json.loads(ad.records_path.read_text().splitlines()[0])
+    assert row["gepa_candidate"] and row["gepa_task"] == "a"

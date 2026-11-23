@@ -1,4 +1,6 @@
 """GEPA adapter: evaluate a candidate on omnis bench workers."""
+import hashlib
+import json
 import logging
 import threading
 
@@ -10,8 +12,20 @@ log = logging.getLogger("gepa_omnis")
 
 
 class OmnisAdapter:
+    propose_new_texts = None    # proposals come from GuardedProposer (custom_candidate_proposer)
+
     def __init__(self, workers, repeat, ledger, reach):
         self.workers, self.repeat, self.ledger, self.reach = workers, repeat, ledger, reach
+        self.records_path = None       # every record is appended here when set
+        self._rec_lock = threading.Lock()
+
+    def _keep(self, tag, item, recs):
+        if not self.records_path:
+            return
+        with self._rec_lock, open(self.records_path, "a", encoding="utf-8") as f:
+            for r in recs:
+                f.write(json.dumps({**r, "gepa_candidate": tag, "gepa_task": item.task_id,
+                                    "gepa_agent": item.agent}, ensure_ascii=False) + "\n")
 
     def _run_item(self, worker, item):
         """(score, records, infra) — an all-infra item is run once more, then scored 0."""
@@ -58,8 +72,10 @@ class OmnisAdapter:
         for t in runners:
             t.join()
 
+        tag = hashlib.sha1(json.dumps(candidate, sort_keys=True).encode()).hexdigest()[:10]
         scores, outputs, trajs, objs = [], [], [], []
         for item, (sc, recs, infra) in zip(batch, results):
+            self._keep(tag, item, recs)
             scores.append(sc)
             outputs.append(recs)
             costs = [r.get("total_cost_usd") or 0.0 for r in recs]
