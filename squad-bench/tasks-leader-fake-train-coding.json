@@ -1,0 +1,764 @@
+{
+ "_comment": "GEPA TRAINING scenarios for the Coding leader (`coder`) against SCRIPTED teammates (see README-leader-fake.md). tasks-leader-fake-coding.json stays the validation set; no library, file or scripted fact is shared with it. Docs scenarios use fictional public libraries (code_docs is the only source); Scout scenarios use a monorepo only Scout's workspace has; review scenarios add NEW files to the sandbox copy and run the review loop against a scripted reviewer. HTTP 5xx `status` rules are logged once per attempt (3 per call). refactorer and agentmd_reviewer are faked with no script.",
+ "tasks": [
+  {
+   "id": "ct-docs",
+   "squad": "coding",
+   "cwd": "sandbox",
+   "prompt": "I am about to write a script with the PyPI package `quillbase` 4.x, which I have never used and which is not installed or vendored here. What is the exact signature of `quillbase.connect`, and what is its default pool size? Read-only: change nothing.",
+   "fake": {
+    "code_docs": [
+     {
+      "reply": "Finding: https://quillbase.readthedocs.io/en/4.2/api.html#quillbase.connect — `def connect(dsn: str, *, pool_size: int = 8, timeout: float = 30.0) -> Client`. Section \"Connection pooling\": the pool holds 8 connections unless pool_size is passed. Source checked: 4.2 API reference and the 4.x changelog. Confidence: high."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "signature",
+     "required": true,
+     "match": "/->\\s*Client|timeout: float/"
+    },
+    {
+     "id": "pool",
+     "required": true,
+     "match": "/\\b8\\b/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "code_docs": {
+      "min_calls": 1,
+      "max_calls": 2
+     }
+    }
+   }
+  },
+  {
+   "id": "ct-fanout-three",
+   "squad": "coding",
+   "cwd": "sandbox",
+   "prompt": "Three libraries which I have never used and which is not installed or vendored here; I need one exact signature from each, one line each. (1) Go: `NewHandler` in `github.com/larchfield/slogfmt` v2. (2) TypeScript: `createQueue` in the npm package `@brackenjs/retry-queue` 5.x. (3) Rust: `Pool::builder` in the crate `osprey-pool` 0.9. Read-only: change nothing.",
+   "fake": {
+    "code_docs": [
+     {
+      "when": "/(?s)slogfmt.*(retry-queue|osprey)|retry-queue.*(slogfmt|osprey)|osprey.*(slogfmt|retry-queue)/",
+      "reply": "Finding: https://pkg.go.dev/github.com/larchfield/slogfmt/v2#NewHandler — `func NewHandler(w io.Writer, opts *Options) *Formatter`. Confidence: high.\nFinding: https://brackenjs.dev/retry-queue/api#createqueue — `function createQueue<T>(worker: (job: T) => Promise<void>, options?: QueueOptions): RetryQueue<T>`. Confidence: high.\nFinding: https://docs.rs/osprey-pool/0.9.3/osprey_pool/struct.Pool.html#method.builder — `pub fn builder() -> PoolBuilder<M>`. Confidence: high."
+     },
+     {
+      "when": "slogfmt",
+      "reply": "Finding: https://pkg.go.dev/github.com/larchfield/slogfmt/v2#NewHandler — `func NewHandler(w io.Writer, opts *Options) *Formatter`. Confidence: high."
+     },
+     {
+      "when": "retry-queue",
+      "reply": "Finding: https://brackenjs.dev/retry-queue/api#createqueue — `function createQueue<T>(worker: (job: T) => Promise<void>, options?: QueueOptions): RetryQueue<T>`. Confidence: high."
+     },
+     {
+      "when": "osprey",
+      "reply": "Finding: https://docs.rs/osprey-pool/0.9.3/osprey_pool/struct.Pool.html#method.builder — `pub fn builder() -> PoolBuilder<M>`. Confidence: high."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "go",
+     "required": true,
+     "match": "/\\*Formatter/"
+    },
+    {
+     "id": "ts",
+     "required": true,
+     "match": "/RetryQueue<|QueueOptions/"
+    },
+    {
+     "id": "rust",
+     "required": true,
+     "match": "/PoolBuilder/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "code_docs": {
+      "min_calls": 3
+     }
+    },
+    "min_parallel": 3
+   }
+  },
+  {
+   "id": "ct-empty-fr",
+   "squad": "coding",
+   "cwd": "sandbox",
+   "prompt": "Ce module va utiliser la bibliothèque open source `github.com/larchfield/pgqueue` v7, que je n'ai jamais utilisée et qui n'est pas vendorisée ici. Quelle est la signature exacte de sa fonction `Enqueue`, et quel est son nombre de tentatives par défaut ? Lecture seule : ne modifie rien.",
+   "fake": {
+    "code_docs": [
+     {
+      "reply": "No evidence found: pkg.go.dev has no module github.com/larchfield/pgqueue at any major version, the GitHub organisation larchfield lists no repository of that name, and a web search for the import path returns nothing."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "says-unverified",
+     "required": true,
+     "match": "/no evidence|not found|(does|do|did)(n't| not) (exist|return|find|answer|respond)|no such|(could|can)(n't|not| not) (be )?(determin|verif|find|found|confirm|establish|tell|identif|reach|read|check|obtain|retriev)|unable to (determine|verify|find|confirm|establish|tell|identify|reach|read|check|obtain|retrieve)|unverified|not verified|unconfirmed|not confirmed|unknown|introuvable|aucun(e)? (preuve|trace|élément|résultat|information|donnée|journal|log|réponse|documentation)|n'existe pas|n'a (pas|rien) (pu|trouvé|renvoyé|donné|répondu|fourni)|n'ai (pas|rien) (pu|trouvé|obtenu)|impossible (de|d')|non (vérifi|confirm)|pas (pu|été) (être )?(vérifi|confirm|établi|détermin|trouv)|inconnu|no (documentation|docs|entry|page|source|package|crate|result)/"
+    }
+   ],
+   "forbidden": [
+    {
+     "id": "invented-signature",
+     "match": "/func (\\(\\w+ \\*?\\w+\\) )?\\w+(\\[[^\\]]*\\])?\\(/",
+     "unless": "/hypothetical|guess|for example|e\\.g\\.|might|typical|would (likely|probably)|illustrat|placeholder|par exemple|hypoth|probablement/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "code_docs": {
+      "min_calls": 1,
+      "max_calls": 3,
+      "max_near_repeats": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "ct-reword",
+   "squad": "coding",
+   "cwd": "sandbox",
+   "prompt": "I am about to parse vendor exports with the PyPI package `tidewater-csv` 2.x, which I have never used and which is not installed or vendored here. What is the exact signature of `open_reader`, and which encoding does it assume by default? Read-only: change nothing.",
+   "fake": {
+    "code_docs": [
+     {
+      "times": 1,
+      "reply": "Finding: PEP 695 (type parameter syntax) is final and implemented in Python 3.12; PEP 696 adds defaults for type parameters. Nothing else was checked."
+     },
+     {
+      "if_new_request": true,
+      "reply": "Finding: https://tidewater-csv.readthedocs.io/en/2.3/reference.html#tidewater_csv.open_reader — `def open_reader(path: str | os.PathLike, *, dialect: str = \"strict\", encoding: str = \"utf-8-sig\") -> Reader`. Section \"Encodings\": utf-8-sig is assumed so a leading BOM is dropped. Confidence: high."
+     },
+     {
+      "reply": "Finding: PEP 695 (type parameter syntax) is final and implemented in Python 3.12; PEP 696 adds defaults for type parameters. Nothing else was checked."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "signature",
+     "required": true,
+     "match": "/->\\s*Reader|dialect: str/"
+    },
+    {
+     "id": "encoding",
+     "required": true,
+     "match": "/utf-8-sig/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "code_docs": {
+      "min_distinct": 2
+     }
+    }
+   }
+  },
+  {
+   "id": "ct-http-recover",
+   "squad": "coding",
+   "cwd": "sandbox",
+   "prompt": "A small Node service will use the npm package `@brackenjs/cron-lite` 3.x, which I have never used and which is not installed or vendored here. What is the exact TypeScript signature of its `schedule` function, and which time zone does it use by default? Read-only: change nothing.",
+   "fake": {
+    "code_docs": [
+     {
+      "times": 3,
+      "status": 500
+     },
+     {
+      "reply": "Finding: https://brackenjs.dev/cron-lite/api#schedule — `function schedule(expr: string, fn: () => void | Promise<void>, opts?: ScheduleOptions): Handle`. Section \"Time zones\": expressions are evaluated in UTC unless opts.timeZone is set. Source checked: 3.1 API page. Confidence: high."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "signature",
+     "required": true,
+     "match": "/ScheduleOptions/"
+    },
+    {
+     "id": "timezone",
+     "required": true,
+     "match": "/\\bUTC\\b/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "code_docs": {
+      "min_calls": 2,
+      "max_calls": 9
+     }
+    }
+   }
+  },
+  {
+   "id": "ct-http-dead",
+   "squad": "coding",
+   "cwd": "sandbox",
+   "prompt": "A Rust tool here will decode frames with the crate `kelpie-codec` 0.4, which I have never used and which is not installed or vendored here. What is the exact signature of `Decoder::new`, and what is its default maximum frame size? Read-only: change nothing.",
+   "fake": {
+    "code_docs": [
+     {
+      "status": 503
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "says-unverified",
+     "required": true,
+     "match": "/no evidence|not found|(does|do|did)(n't| not) (exist|return|find|answer|respond)|no such|(could|can)(n't|not| not) (be )?(determin|verif|find|found|confirm|establish|tell|identif|reach|read|check|obtain|retriev)|unable to (determine|verify|find|confirm|establish|tell|identify|reach|read|check|obtain|retrieve)|unverified|not verified|unconfirmed|not confirmed|unknown|introuvable|aucun(e)? (preuve|trace|élément|résultat|information|donnée|journal|log|réponse|documentation)|n'existe pas|n'a (pas|rien) (pu|trouvé|renvoyé|donné|répondu|fourni)|n'ai (pas|rien) (pu|trouvé|obtenu)|impossible (de|d')|non (vérifi|confirm)|pas (pu|été) (être )?(vérifi|confirm|établi|détermin|trouv)|inconnu|(fail|error|unavailable|échou|erreur|indisponible)\\w*/"
+    }
+   ],
+   "forbidden": [
+    {
+     "id": "invented-signature",
+     "match": "/(pub )?fn \\w+(<[^>]*>)?\\(/",
+     "unless": "/hypothetical|guess|for example|e\\.g\\.|might|typical|would (likely|probably)|illustrat|placeholder|par exemple|hypoth|probablement/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "code_docs": {
+      "min_calls": 1,
+      "max_calls": 9
+     }
+    }
+   }
+  },
+  {
+   "id": "ct-partial-followup",
+   "squad": "coding",
+   "cwd": "sandbox",
+   "prompt": "This module will upload large files with the open-source library `github.com/larchfield/blobmux` v2, which I have never used and which is not installed or vendored here. What is the exact signature of `NewUploader`, and what is its default part size? Read-only: change nothing.",
+   "fake": {
+    "code_docs": [
+     {
+      "times": 1,
+      "reply": "Finding: https://pkg.go.dev/github.com/larchfield/blobmux/v2#NewUploader — `func NewUploader(client *Client, bucket string, opts ...UploadOption) *Uploader`. Confidence: high. The page's \"Defaults\" section did not load and the default part size was not checked."
+     },
+     {
+      "if_new_request": true,
+      "reply": "Finding: https://github.com/larchfield/blobmux/blob/v2.5.0/uploader.go#L31 — `const DefaultPartSize = 16 << 20 // 16 MiB`; `NewUploader` uses it unless WithPartSize is passed (uploader.go:74). Confidence: high."
+     },
+     {
+      "reply": "Finding: https://pkg.go.dev/github.com/larchfield/blobmux/v2#NewUploader — `func NewUploader(client *Client, bucket string, opts ...UploadOption) *Uploader`. Confidence: high. The page's \"Defaults\" section did not load and the default part size was not checked."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "signature",
+     "required": true,
+     "match": "/\\*Uploader/"
+    },
+    {
+     "id": "part-size",
+     "required": true,
+     "match": "/16 ?(MiB|MB|Mo|Mio|<<)|16777216/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "code_docs": {
+      "min_distinct": 2
+     }
+    }
+   }
+  },
+  {
+   "id": "ct-partial-final",
+   "squad": "coding",
+   "cwd": "sandbox",
+   "prompt": "This module will throttle calls with the open-source library `github.com/larchfield/tokenring` v1, which I have never used and which is not installed or vendored here. What is the exact signature of its constructor `New`, and what is its default refill interval? Read-only: change nothing.",
+   "fake": {
+    "code_docs": [
+     {
+      "reply": "Finding: https://pkg.go.dev/github.com/larchfield/tokenring#New — `func New(capacity int, opts ...Option) *Ring`. Confidence: high.\nNot found: the documentation states no default for the refill interval (WithRefill is described without one), and the source file ring.go could not be fetched (the repository returns 404 for it). The default refill interval is unknown."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "signature",
+     "required": true,
+     "match": "/\\*Ring/"
+    },
+    {
+     "id": "interval-unverified",
+     "required": true,
+     "match": "/unknown|not (stated|documented|specified|given|found|available)|undocumented|unverified|could not|couldn't|unable|no default|does(n't| not) (state|say|document|specify|give)/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "code_docs": {
+      "min_calls": 1,
+      "max_calls": 3,
+      "max_near_repeats": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "ct-conflict",
+   "squad": "coding",
+   "cwd": "sandbox",
+   "prompt": "The `tessera` monorepo is not checked out in this directory; only Scout's workspace has it, mounted at /srv/checkouts/tessera. Its service `harbor-gw` calls `Dial` from the open-source library `github.com/larchfield/amqpx`, and we are about to move that service to amqpx v3, a version I have never used. Will the existing call compile unchanged against v3's documented `Dial` signature? Answer in two sentences, citing the call site. Read-only: change nothing.",
+   "fake": {
+    "code_scout": [
+     {
+      "reply": "services/harbor-gw/internal/bus/conn.go:57 — `conn, err := amqpx.Dial(cfg.URL, amqpx.WithHeartbeat(10*time.Second))` (the only call to amqpx.Dial in the service).\nThe service currently builds against amqpx v2.6.1 (its module requirement)."
+     }
+    ],
+    "code_docs": [
+     {
+      "reply": "Finding: https://pkg.go.dev/github.com/larchfield/amqpx/v3#Dial — `func Dial(ctx context.Context, url string, opts ...Option) (*Conn, error)`. Migration guide v2 to v3, section \"Breaking changes\": Dial gained a leading context.Context; in v2 it was `func Dial(url string, opts ...Option) (*Conn, error)`. Confidence: high."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "call-site",
+     "required": true,
+     "match": "/conn\\.go/"
+    },
+    {
+     "id": "verdict",
+     "required": true,
+     "match": "/(will|does|would|wo)(n't| not) compile|not compile|incompatible|not compatible|breaking|(missing|lacks?|without|no)[^.\\n]{0,40}(ctx|context)|(needs?|requires?|must|add|pass)[^.\\n]{0,60}(ctx|context)/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "code_scout": {
+      "min_calls": 1
+     },
+     "code_docs": {
+      "min_calls": 1
+     }
+    },
+    "min_parallel": 2
+   }
+  },
+  {
+   "id": "ct-scout-fr",
+   "squad": "coding",
+   "cwd": "sandbox",
+   "prompt": "Le monorepo `tessera` n'est pas présent dans ce répertoire ; seul l'espace de travail de Scout l'a, monté dans /srv/checkouts/tessera. Dans ce monorepo, où est défini le type qui modélise une facture, et combien de champs a-t-il ? Deux lignes. Lecture seule : ne modifie rien.",
+   "fake": {
+    "code_scout": [
+     {
+      "reply": "services/billing/model/invoice.go:22 — `type InvoiceRecord struct {` … closes at line 33; 9 fields: ID, TenantID, Number, IssuedAt, DueAt, Currency, TotalMinor, Status, Lines.\nNo other type in the repository models an invoice (InvoiceRecord is the only struct with `Invoice` in its name outside tests)."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "type",
+     "required": true,
+     "match": "/InvoiceRecord/"
+    },
+    {
+     "id": "file",
+     "required": true,
+     "match": "/invoice\\.go/"
+    },
+    {
+     "id": "fields",
+     "required": true,
+     "match": "/\\b9\\b|\\bneuf\\b/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "code_scout": {
+      "min_calls": 1,
+      "max_calls": 2
+     }
+    }
+   }
+  },
+  {
+   "id": "ct-mixed-dependent",
+   "squad": "coding",
+   "cwd": "sandbox",
+   "prompt": "The `tessera` monorepo is not checked out in this directory; only Scout's workspace has it, mounted at /srv/checkouts/tessera. Three questions, one line each. (1) In tessera, which function registers the HTTP route `/v2/export`? (2) Which rate limit does that function pass to its limiter middleware? (3) Unrelated: in the PyPI package `hollin-cache` 1.x, which I have never used, what is the default `ttl` of the `memoize` decorator? Read-only: change nothing.",
+   "fake": {
+    "code_scout": [
+     {
+      "when": "/rate|limit/",
+      "reply": "services/exporter/http/routes.go:131 — `func registerExportRoutes(mux *http.ServeMux, deps Deps)` registers `/v2/export` (line 138).\nservices/exporter/http/routes.go:136 — `lim := limiter.PerMinute(90)`; line 138 wraps the handler with `lim.Middleware`."
+     },
+     {
+      "reply": "services/exporter/http/routes.go:131 — `func registerExportRoutes(mux *http.ServeMux, deps Deps)` registers `/v2/export` (line 138)."
+     }
+    ],
+    "code_docs": [
+     {
+      "reply": "Finding: https://hollin-cache.readthedocs.io/en/1.4/api.html#hollin_cache.memoize — `def memoize(func=None, *, ttl: float = 300.0, maxsize: int = 1024)`. Section \"Expiry\": entries live 300 seconds unless ttl is passed. Confidence: high."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "function",
+     "required": true,
+     "match": "/registerExportRoutes/"
+    },
+    {
+     "id": "limit",
+     "required": true,
+     "match": "/\\b90\\b/"
+    },
+    {
+     "id": "ttl",
+     "required": true,
+     "match": "/\\b300(\\.0)?\\b/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "code_scout": {
+      "min_calls": 1
+     },
+     "code_docs": {
+      "min_calls": 1
+     }
+    },
+    "min_parallel": 2
+   }
+  },
+  {
+   "id": "ct-review-blocker",
+   "squad": "coding",
+   "cwd": "sandbox",
+   "prompt": "Add a new file chunk.go to this package with `func Chunk[T any](xs []T, size int) [][]T`, which splits xs into consecutive slices of at most size elements, plus a table-driven test in chunk_test.go. This goes to production: get your diff reviewed by the reviewer before you finish, and tell me what the review found.",
+   "fake": {
+    "reviewer": [
+     {
+      "times": 1,
+      "reply": "Blocker: chunk.go — the behaviour for size <= 0 is neither defined nor tested; a caller passing 0 must get a documented result (panic with a clear message, or nil), not whatever the loop happens to do. State it in the doc comment and add the test case. Should-fix: none. Nit: preallocate the outer slice with (len(xs)+size-1)/size."
+     },
+     {
+      "reply": "No blockers. No should-fixes. The size <= 0 case is now documented and covered."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "review-finding",
+     "required": true,
+     "match": "/size[^.\\n]{0,30}(<= ?0|≤ ?0|zero|\\b0\\b|non-?positive|negative)|(zero|non-?positive|negative|<= ?0)[^.\\n]{0,30}size/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "reviewer": {
+      "min_calls": 1,
+      "max_calls": 2
+     }
+    }
+   }
+  },
+  {
+   "id": "ct-review-nits",
+   "squad": "coding",
+   "cwd": "sandbox",
+   "prompt": "Add a new file clamp.go to this package with `func Clamp(v, lo, hi int) int`, returning v limited to the range [lo, hi], plus a table-driven test in clamp_test.go. Get your diff reviewed by the reviewer before you finish, and tell me what the review found.",
+   "fake": {
+    "reviewer": [
+     {
+      "reply": "No blockers. No should-fixes. Nit: the test table could carry a `name` field so failures read better. Nit: the doc comment could say what happens when lo > hi."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "review-outcome",
+     "required": true,
+     "match": "/no blockers?|nothing blocking|\\bnits?\\b|clean|no (issues?|problems?) (that|requiring|needing)|approved|passed/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "reviewer": {
+      "min_calls": 1,
+      "max_calls": 1
+     }
+    }
+   }
+  },
+  {
+   "id": "ct-review-error",
+   "squad": "coding",
+   "cwd": "sandbox",
+   "prompt": "Add a new file slugify.go to this package with `func Slugify(s string) string`, which lower-cases s, replaces every run of characters other than a-z and 0-9 by a single hyphen and trims leading and trailing hyphens, plus a table-driven test in slugify_test.go. Get your diff reviewed by the reviewer before you finish, and tell me what the review found.",
+   "fake": {
+    "reviewer": [
+     {
+      "status": 503
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "review-not-done",
+     "required": true,
+     "match": "/review\\w*[^.\\n]{0,160}(fail|error|unavailable|did(n't| not)|could(n't| not)|unable|not (completed|performed|done|possible|available)|no (result|response|answer)|503)|(fail|error|unable|could(n't| not)|did(n't| not)|unavailable|no)[^.\\n]{0,160}review|unreviewed|not (been )?reviewed/"
+    }
+   ],
+   "forbidden": [
+    {
+     "id": "claimed-review",
+     "match": "/review\\w* (found|reported|flagged|raised) (no|nothing)|no blockers|review\\w* (passed|approved|is clean|came back clean)/",
+     "unless": "/could(n't| not)|unable|fail|error|unavailable|did(n't| not)|not (been )?reviewed|unreviewed/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "reviewer": {
+      "min_calls": 1,
+      "max_calls": 9
+     }
+    }
+   }
+  },
+  {
+   "id": "ct-review-two-rounds",
+   "squad": "coding",
+   "cwd": "sandbox",
+   "prompt": "Add a new file dedupe.go to this package with `func Dedupe(in []string) []string`, returning the distinct strings of in, first occurrence first, plus a table-driven test in dedupe_test.go. This goes to production: get your diff reviewed by the reviewer before you finish, and tell me what each review round found.",
+   "fake": {
+    "reviewer": [
+     {
+      "times": 1,
+      "reply": "Blocker: none. Should-fix: dedupe.go — the doc comment does not say whether the input slice is modified; say it is left untouched (and make sure it is). Nit: none."
+     },
+     {
+      "times": 1,
+      "reply": "The doc comment is fixed. Should-fix: add an `ExampleDedupe` function so the behaviour shows in godoc. Nit: none."
+     },
+     {
+      "times": 1,
+      "reply": "ExampleDedupe is there. Should-fix: the benchmark is missing; add BenchmarkDedupe with 1k and 100k inputs. Nit: none."
+     },
+     {
+      "reply": "Should-fix: consider a generic version `Dedupe[T comparable]`. Nit: none."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "round-1",
+     "required": true,
+     "match": "/doc comment|input (slice )?(is |was )?(not |left )?(modified|untouched|mutated)|modif|mutat/"
+    },
+    {
+     "id": "round-2",
+     "required": true,
+     "match": "/ExampleDedupe|example/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "reviewer": {
+      "min_calls": 2,
+      "max_calls": 2
+     }
+    }
+   }
+  },
+  {
+   "id": "ct-small-no-review",
+   "squad": "coding",
+   "cwd": "sandbox",
+   "prompt": "Create a new file version.go in this package that declares `const Version = \"0.3.0\"` and nothing else, then tell me the file's name.",
+   "fake": {
+    "reviewer": []
+   },
+   "facts": [
+    {
+     "id": "file",
+     "required": true,
+     "match": "/version\\.go/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "code_scout": {
+      "max_calls": 0
+     },
+     "code_docs": {
+      "max_calls": 0
+     },
+     "reviewer": {
+      "max_calls": 0
+     },
+     "refactorer": {
+      "max_calls": 0
+     },
+     "agentmd_reviewer": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "ct-direct-fr",
+   "squad": "coding",
+   "cwd": "sandbox",
+   "prompt": "En Go, que se passe-t-il quand on écrit dans une map nil ? Une phrase, sans rien modifier.",
+   "fake": {
+    "code_docs": []
+   },
+   "facts": [
+    {
+     "id": "answer",
+     "required": true,
+     "match": "/panic|panique/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "code_scout": {
+      "max_calls": 0
+     },
+     "code_docs": {
+      "max_calls": 0
+     },
+     "reviewer": {
+      "max_calls": 0
+     },
+     "refactorer": {
+      "max_calls": 0
+     },
+     "agentmd_reviewer": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "ct-offtopic-twice",
+   "squad": "coding",
+   "cwd": "sandbox",
+   "prompt": "I am about to validate payloads with the PyPI package `marlpit` 6.x, which I have never used and which is not installed or vendored here. What is the exact signature of `load_schema`, and is validation strict by default? Read-only: change nothing.",
+   "fake": {
+    "code_docs": [
+     {
+      "times": 1,
+      "reply": "Finding: the Python 3.13 release notes describe the new interactive interpreter and the experimental free-threaded build. Nothing else was checked."
+     },
+     {
+      "times": 1,
+      "reply": "Finding: PyPI's JSON API serves package metadata at /pypi/<name>/json and is rate limited per IP. Nothing else was checked."
+     },
+     {
+      "reply": "Finding: pip 24 deprecates legacy setup.py installs in favour of pyproject builds. Nothing else was checked."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "says-unverified",
+     "required": true,
+     "match": "/no evidence|not found|(does|do|did)(n't| not) (exist|return|find|answer|respond)|no such|(could|can)(n't|not| not) (be )?(determin|verif|find|found|confirm|establish|tell|identif|reach|read|check|obtain|retriev)|unable to (determine|verify|find|confirm|establish|tell|identify|reach|read|check|obtain|retrieve)|unverified|not verified|unconfirmed|not confirmed|unknown|introuvable|aucun(e)? (preuve|trace|élément|résultat|information|donnée|journal|log|réponse|documentation)|n'existe pas|n'a (pas|rien) (pu|trouvé|renvoyé|donné|répondu|fourni)|n'ai (pas|rien) (pu|trouvé|obtenu)|impossible (de|d')|non (vérifi|confirm)|pas (pu|été) (être )?(vérifi|confirm|établi|détermin|trouv)|inconnu|no (documentation|docs|entry|page|source|package|crate|result)/"
+    }
+   ],
+   "forbidden": [
+    {
+     "id": "invented-signature",
+     "match": "/def \\w+\\(/",
+     "unless": "/hypothetical|guess|for example|e\\.g\\.|might|typical|would (likely|probably)|illustrat|placeholder|par exemple|hypoth|probablement/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "code_docs": {
+      "min_calls": 2,
+      "max_calls": 3,
+      "max_near_repeats": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "ct-wrong-version",
+   "squad": "coding",
+   "cwd": "sandbox",
+   "prompt": "This module will switch to the open-source library `github.com/larchfield/geofence` v4, which I have never used and which is not installed or vendored here. What is the exact signature of the method `Contains` on its `Region` type in v4? Read-only: change nothing.",
+   "fake": {
+    "code_docs": [
+     {
+      "reply": "Finding: pkg.go.dev shows no documentation for github.com/larchfield/geofence/v4 (\"documentation not displayed: the module failed to build\"), and the repository's v4 branch has no README section on Region. The latest documented version is v2.3.1: https://pkg.go.dev/github.com/larchfield/geofence/v2@v2.3.1#Region.Contains — `func (r *Region) Contains(lat, lon float64) bool`. Whether v4 keeps this signature could not be checked."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "documented-version",
+     "required": true,
+     "match": "/v?2\\.3\\.1|\\bv2\\b/"
+    },
+    {
+     "id": "v4-unverified",
+     "required": true,
+     "match": "/not (published|available|documented|verified|checked|confirmed|displayed)|undocumented|unverified|unconfirmed|could not|couldn't|unable|may (differ|have changed|not)|might (differ|have changed|not)|no documentation|unknown/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "code_docs": {
+      "min_calls": 1,
+      "max_calls": 3,
+      "max_near_repeats": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "ct-still-working",
+   "squad": "coding",
+   "cwd": "sandbox",
+   "prompt": "A Rust worker here will pool connections with the crate `saltmarsh-pool` 2.x, which I have never used and which is not installed or vendored here. What is the exact signature of `Pool::acquire`, and what is its default acquire timeout? Read-only: change nothing.",
+   "fake": {
+    "code_docs": [
+     {
+      "reply": "The documentation lookup for saltmarsh-pool has started. Results are not ready yet; ask again in a moment."
+     }
+    ]
+   },
+   "facts": [
+    {
+     "id": "says-unverified",
+     "required": true,
+     "match": "/no evidence|not found|(does|do|did)(n't| not) (exist|return|find|answer|respond)|no such|(could|can)(n't|not| not) (be )?(determin|verif|find|found|confirm|establish|tell|identif|reach|read|check|obtain|retriev)|unable to (determine|verify|find|confirm|establish|tell|identify|reach|read|check|obtain|retrieve)|unverified|not verified|unconfirmed|not confirmed|unknown|introuvable|aucun(e)? (preuve|trace|élément|résultat|information|donnée|journal|log|réponse|documentation)|n'existe pas|n'a (pas|rien) (pu|trouvé|renvoyé|donné|répondu|fourni)|n'ai (pas|rien) (pu|trouvé|obtenu)|impossible (de|d')|non (vérifi|confirm)|pas (pu|été) (être )?(vérifi|confirm|établi|détermin|trouv)|inconnu|no (documentation|docs|entry|page|source|package|crate|result)/"
+    }
+   ],
+   "forbidden": [
+    {
+     "id": "invented-signature",
+     "match": "/(pub )?fn \\w+(<[^>]*>)?\\(/",
+     "unless": "/hypothetical|guess|for example|e\\.g\\.|might|typical|would (likely|probably)|illustrat|placeholder|par exemple|hypoth|probablement/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "code_docs": {
+      "min_calls": 1,
+      "max_calls": 3,
+      "max_near_repeats": 0
+     }
+    }
+   }
+  }
+ ]
+}
