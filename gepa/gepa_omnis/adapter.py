@@ -1,0 +1,86 @@
+"""GEPA adapter: evaluate a candidate on omnis bench workers."""
+import logging
+import threading
+
+from gepa.core.adapter import EvaluationBatch
+
+from . import score
+
+log = logging.getLogger("gepa_omnis")
+
+
+class OmnisAdapter:
+    def __init__(self, workers, repeat, ledger, reach):
+        self.workers, self.repeat, self.ledger, self.reach = workers, repeat, ledger, reach
+
+    def _run_item(self, worker, item):
+        """(score, records, infra) — an all-infra item is run once more, then scored 0."""
+        for attempt in (1, 2):
+            try:
+                recs = worker.run(item, self.repeat)
+            except RuntimeError as e:
+                log.warning("bench run failed for %s: %s", item.task_id, e)
+                recs = [{"status": "error", "error": str(e)}]
+            for r in recs:
+                self.ledger.add(r.get("total_cost_usd") or 0.0, "eval")
+            try:
+                return score.task_score(recs), recs, False
+            except score.InfraError:
+                log.warning("infrastructure failure on %s (attempt %d)", item.task_id, attempt)
+        return 0.0, recs, True
+
+    def evaluate(self, batch, candidate, capture_traces=False):
+        errors = []
+
+        def apply(w):
+            try:
+                w.apply(candidate)
+            except Exception as e:      # re-raised below: a candidate that did not load stops the run
+                errors.append(e)
+
+        appliers = [threading.Thread(target=apply, args=(w,)) for w in self.workers]
+        for t in appliers:
+            t.start()
+        for t in appliers:
+            t.join()
+        if errors:
+            raise errors[0]
+
+        results = [None] * len(batch)
+
+        def drain(wi, worker):
+            for i in range(wi, len(batch), len(self.workers)):
+                results[i] = self._run_item(worker, batch[i])
+
+        runners = [threading.Thread(target=drain, args=(wi, w)) for wi, w in enumerate(self.workers)]
+        for t in runners:
+            t.start()
+        for t in runners:
+            t.join()
+
+        scores, outputs, trajs, objs = [], [], [], []
+        for item, (sc, recs, infra) in zip(batch, results):
+            scores.append(sc)
+            outputs.append(recs)
+            costs = [r.get("total_cost_usd") or 0.0 for r in recs]
+            objs.append({"cost": sum(costs) / max(len(costs), 1)})
+            trajs.append({"item": item, "records": recs, "infra": infra})
+        return EvaluationBatch(outputs=outputs, scores=scores,
+                               trajectories=trajs if capture_traces else None,
+                               objective_scores=objs)
+
+    def make_reflective_dataset(self, candidate, eval_batch, components_to_update):
+        out = {}
+        for name in components_to_update:
+            reached = self.reach.get(name, set())
+            rows = []
+            for traj in eval_batch.trajectories or []:
+                if traj["infra"] or traj["item"].agent not in reached:
+                    continue
+                item, recs = traj["item"], traj["records"]
+                prompts = item.task.get("prompts") or [item.task.get("prompt", "")]
+                rows.append({"Inputs": "\n".join(prompts),
+                             "Generated Outputs": "\n---\n".join((r.get("answer") or "")[:1500] for r in recs),
+                             "Feedback": score.feedback(item, recs)})
+            out[name] = rows
+        return out
