@@ -122,3 +122,12 @@ Members to fake: `k8s_investigator,k8s_editor,k8s_cleaner` and
 - The leader keeps its own tools (`Bash`, `Read`…) and the arm runs with
   `bypassPermissions`: keep prompts read-only.
 - A task with a `fake` script and no `--fake` stops the bench before it starts.
+
+## Companion task files
+
+- `tasks-leader-fake-direct.json` — requests the System leader answers itself;
+  an `investigator` call there is over-delegation (gate: 0 calls). Run it with
+  `--fake` like the others.
+- `tasks-leader-real.json` — the real System squad (no `--fake`, no fake
+  overlay) on small questions with a known answer: checks that a delegation
+  change keeps answers correct and what it costs in time and money.

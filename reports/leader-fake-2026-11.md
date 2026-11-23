@@ -172,6 +172,80 @@ samples, `premium` 3. Cost: **$0.64** for 40 runs.
   makes the leader delegate what it should do itself (a one-line answer, a file
   edit), and the Kubernetes and Coding leaders, which have no reminder.
 
+## Fifth run — control arm, real squad, reworded reminder (2026-11-23)
+
+Checks asked for before merging the reminder. Three additions:
+
+- a **control arm in the same session** (`develop`, no reminder);
+- `tasks-leader-fake-direct.json`: five requests the leader must answer itself
+  (general knowledge, arithmetic, an explanation, writing a file, one word) —
+  any `investigator` call is over-delegation;
+- `tasks-leader-real.json`: the **real** System squad (no fake sub-agent) on
+  four questions about the sandbox whose answer is known.
+
+Records: `leader-fake-2026-11-v5-*` (control and first wording),
+`leader-real-2026-11-{control,reminder}-*` and `-b-*` (first wording),
+`leader-fake-2026-11-v6-*` and `leader-real-2026-11-v2-*` (second wording).
+Cost of the whole run: **$3.83**.
+
+### First wording: confirmed on fakes, two defects on the real squad
+
+Scripted sub-agents, `balanced`, 5 samples: unprompted delegation 1/5 without
+the reminder, 5/5 with; fan-out 1/5 → 5/5. No `investigator` call on the five
+direct requests, either arm, either model (80 runs).
+
+Real squad:
+
+| | balanced, control | balanced, reminder | premium, control | premium, reminder |
+|---|---|---|---|---|
+| Correct answers | 36/36 | 31/36 | 12/12 | 12/12 |
+| Turns ending with an empty reply | 0/36 | **5/36** | 0 | 0 |
+| One-step lookup (`lr-count`): time | 3 s | 3 s | 3-4 s | **13-26 s**, delegated 3/3 |
+| Cost per run | $0.0065 | $0.011 | $0.017 | $0.026 |
+
+- `premium` delegated every one-step lookup (9/9), where it did them itself in
+  3 s without the reminder.
+- `balanced` ended 5 turns of 36 on an empty reply after its own tool call
+  (4 on `lr-absent`, where `Glob` returns nothing). Likely the reminder's "then
+  stop", read literally; the sessions were deleted, so this is unverified.
+
+### Second wording
+
+> [Delegation — a question that needs evidence from the machine beyond one
+> quick lookup (several files, logs, a remote host, a cause to establish) goes
+> to the 'investigator' sub-agent first, not to your own Bash, Read, Grep or
+> Glob; a single quick lookup you may do yourself. Two independent questions =
+> two 'investigator' calls in the same response. If the investigator's answer
+> is empty or off-topic, re-task it once with different guidance and no more.
+> Always end with a written answer to the user, saying what is unverified.]
+
+omnis `feat/turn-reminder` at `8341849`.
+
+| | balanced | premium |
+|---|---|---|
+| Scripted: unprompted delegation | 5/5 | 3/3 |
+| Scripted: fan-out in parallel | 5/5 | 3/3 |
+| Scripted: calls on empty evidence | 4, 4, 2, 3, 3 | 2, 2, 2 |
+| Scripted: direct requests, `investigator` calls | 0 in 25 | 0 in 15 |
+| Real: correct answers | 35/36 | 12/12 |
+| Real: empty replies | 0/36 | 0/12 |
+| Real: one-step lookups delegated | 0/27 | 0/9 |
+| Real: one-step lookup time | 3-5 s | 3-8 s |
+| Real: two-question task (`lr-two`) | delegated 7/9, 31-49 s | delegated 3/3, 29-45 s |
+
+- Both defects of the first wording are gone; the gains on the scripted bench
+  are kept.
+- **What it costs:** the two-question task on a 37-line sandbox takes 30-49 s
+  through two investigator calls, against 5-8 s when the leader reads the two
+  files itself (`balanced` control; `premium` control already delegated it
+  2/3). The answers are the same.
+- **Not fixed:** `balanced` still makes 2 to 4 calls on empty evidence (control:
+  2 to 5), and still runs 2-3 `Bash` calls beside its delegation in
+  `lf-unprompted` (first wording: 4-10).
+- One `balanced` real run (1/36) ended after its acknowledgement line with no
+  answer. Control: 0/36.
+- Limits: one squad, small sandbox tasks, 3 to 9 samples per cell.
+
 ## First run — evidence absent from the host
 
 Records: `leader-fake-2026-11-balanced.jsonl`, `leader-fake-2026-11-premium.jsonl`.

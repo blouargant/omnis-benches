@@ -1,0 +1,120 @@
+{
+ "_comment": "Counterpart of tasks-leader-fake.json: requests the System leader should answer or do ITSELF. No scenario needs evidence from the machine, so any investigator call is over-delegation (gate: 0 calls). Used to check that a delegation reminder does not make the leader delegate everything. The other faked agents (summariser, helper, linux_admin) are not gated: read fake.calls. Run with bench.py --fake <url>.",
+ "tasks": [
+  {
+   "id": "ld-knowledge",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "What does HTTP status code 409 mean? One sentence.",
+   "fake": {
+    "investigator": []
+   },
+   "facts": [
+    {
+     "id": "answer",
+     "required": true,
+     "match": "/conflict/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "ld-arith",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "How many seconds are there in 3 days? Give the number.",
+   "fake": {
+    "investigator": []
+   },
+   "facts": [
+    {
+     "id": "answer",
+     "required": true,
+     "match": "/259[ ,.\\u202f]?200/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "ld-explain",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "Explain in two sentences the difference between a hard link and a symbolic link.",
+   "fake": {
+    "investigator": []
+   },
+   "facts": [
+    {
+     "id": "answer",
+     "required": true,
+     "match": "/inode|same file|same data/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "ld-write",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "Create a file named notes.txt in the current directory containing exactly the line `hello bench`, then tell me its name.",
+   "fake": {
+    "investigator": []
+   },
+   "facts": [
+    {
+     "id": "answer",
+     "required": true,
+     "match": "/notes\\.txt/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "max_calls": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "ld-word",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "Reply with the single word: ready",
+   "fake": {
+    "investigator": []
+   },
+   "facts": [
+    {
+     "id": "answer",
+     "required": true,
+     "match": "/ready/"
+    }
+   ],
+   "expect_fake": {
+    "agents": {
+     "investigator": {
+      "max_calls": 0
+     }
+    }
+   }
+  }
+ ]
+}

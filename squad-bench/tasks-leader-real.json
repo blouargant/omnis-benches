@@ -1,0 +1,33 @@
+{
+ "_comment": "Real System squad (no fake sub-agent) on the sandbox copy: small evidence questions whose answer is known. Used beside tasks-leader-fake.json to check that a change to the leader's delegation keeps answers correct and what it costs (delegations, leader_tools, wall_ms, cost).",
+ "tasks": [
+  {
+   "id": "lr-count",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "How many .go files are in this directory, recursively? Answer with the number. Read-only: change nothing.",
+   "expect": "/\\b2\\b|\\btwo\\b/"
+  },
+  {
+   "id": "lr-module",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "Which module name and which Go version does this directory's go.mod declare? Read-only: change nothing.",
+   "expect": "/1\\.22/"
+  },
+  {
+   "id": "lr-two",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "Two independent questions about the Go files in this directory: (1) which type is protected by a mutex, and in which file; (2) by what factor does the retry helper grow its delay after each failure. Read-only: change nothing.",
+   "expect": "/LruCache/"
+  },
+  {
+   "id": "lr-absent",
+   "squad": "system",
+   "cwd": "sandbox",
+   "prompt": "Is there a Dockerfile anywhere in this directory? Answer yes or no, then one sentence. Read-only: change nothing.",
+   "expect": "/\\bno\\b/"
+  }
+ ]
+}

@@ -1379,6 +1379,29 @@ class TestFakeScoring(unittest.TestCase):
         self.assertEqual((s["calls"], s["max_parallel"], s["requests"]), ({}, 0, []))
 
 
+class TestLeaderFakeDirectTasks(unittest.TestCase):
+    """tasks-leader-fake-direct.json: requests the leader answers itself."""
+
+    def test_every_task_forbids_an_investigator_call(self):
+        import fake_subagents
+        import scoring
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tasks-leader-fake-direct.json")
+        with open(path) as f:
+            tasks = json.load(f)["tasks"]
+        self.assertGreaterEqual(len(tasks), 4)
+        for t in tasks:
+            self.assertEqual((t["squad"], t["cwd"]), ("system", "sandbox"), t["id"])
+            self.assertIsNone(fake_subagents.validate_script(t["fake"]), t["id"])
+            self.assertEqual(t["expect_fake"]["agents"]["investigator"], {"max_calls": 0}, t["id"])
+            for word in ("investigator", "log", "batch-02"):
+                self.assertNotIn(word, t["prompt"], t["id"])
+            none = scoring.fake_summary([])
+            one = scoring.fake_summary([{"agent": "investigator", "request": "x", "start": 0, "end": 1}])
+            self.assertTrue(scoring.check_fake(t["expect_fake"], none)["fake_gate"], t["id"])
+            self.assertEqual(scoring.check_fake(t["expect_fake"], one)["fake_failed"],
+                             ["investigator.max_calls"], t["id"])
+
+
 if __name__ == "__main__":
     unittest.main()
 
