@@ -39,7 +39,7 @@
    "fake": {
     "investigator": [
      {
-      "reply": "Finding (on batch-02): /var/log/orders-sync/run-2026-11-21.log:412 — \"FATAL: could not connect to db-orders:5432: connection refused\" at 02:14:07. The three retries before it (lines 398-410) fail the same way. Confidence: high. No other error in the file."
+      "reply": "Finding (on batch-02): /var/log/orders-sync/run.log:412 — \"FATAL: could not connect to db-orders:5432: connection refused\" at 02:14:07. The three retries before it (lines 398-410) fail the same way. Confidence: high. No other error in the file."
      }
     ]
    },
@@ -68,11 +68,11 @@
     "investigator": [
      {
       "when": "/(?s)orders-sync.*reports|reports.*orders-sync/",
-      "reply": "Finding (on batch-02): /var/log/orders-sync/run-2026-11-21.log:412 — \"FATAL: could not connect to db-orders:5432: connection refused\" at 02:14:07. The three retries before it (lines 398-410) fail the same way. Confidence: high. No other error in the file.\nFinding (on batch-02): /var/log/reports-audit.log:9031-9977 — process pdf-export (pid 4312) wrote 61 GB to /var/spool/reports between 14:02 and 16:40 yesterday. Confidence: high."
+      "reply": "Finding (on batch-02): /var/log/orders-sync/run.log:412 — \"FATAL: could not connect to db-orders:5432: connection refused\" at 02:14:07. The three retries before it (lines 398-410) fail the same way. Confidence: high. No other error in the file.\nFinding (on batch-02): /var/log/reports-audit.log:9031-9977 — process pdf-export (pid 4312) wrote 61 GB to /var/spool/reports between 14:02 and 16:40 yesterday. Confidence: high."
      },
      {
       "when": "orders-sync",
-      "reply": "Finding (on batch-02): /var/log/orders-sync/run-2026-11-21.log:412 — \"FATAL: could not connect to db-orders:5432: connection refused\" at 02:14:07. The three retries before it (lines 398-410) fail the same way. Confidence: high. No other error in the file."
+      "reply": "Finding (on batch-02): /var/log/orders-sync/run.log:412 — \"FATAL: could not connect to db-orders:5432: connection refused\" at 02:14:07. The three retries before it (lines 398-410) fail the same way. Confidence: high. No other error in the file."
      },
      {
       "when": "reports",
