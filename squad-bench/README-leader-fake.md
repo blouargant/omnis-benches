@@ -99,6 +99,49 @@ Members to fake: `k8s_investigator,k8s_editor,k8s_cleaner` and
 `code_scout,code_docs,reviewer,refactorer,agentmd_reviewer`. Results:
 `reports/leader-fake-k8s-coding-2026-11.md`.
 
+## Training scenarios (GEPA)
+
+GEPA evolves a leader's prompt texts from the traces of failed tasks
+(`../omnis/docs/superpowers/specs/2026-11-23-gepa-prompt-evolution-design.md`).
+Five scenarios per leader are too few to do more than fit them, so each leader
+has a larger **training** file. The five original scenarios stay as
+**validation**; `tasks-leader-fake-direct.json` and `tasks-leader-real.json`
+stay **held out** and are never shown to the optimizer.
+
+| File | Leader | Tasks |
+|---|---|---|
+| `tasks-leader-fake-train.json` | `leader` (System) | 21 (`lt-*`) |
+| `tasks-leader-fake-train-k8s.json` | `k8s_leader` | 21 (`kt-*`) |
+| `tasks-leader-fake-train-coding.json` | `coder` | 20 (`ct-*`) |
+
+They run like the other files (`--fake`, same members to fake). Beyond the
+shapes above (unprompted delegation, fan-out, empty, reword) they cover: a
+sub-agent that only answers off-topic or "still working" (stop after two
+unhelpful attempts, no identical re-ask), an HTTP error that recovers and one
+that never does, a partial answer with and without a possible follow-up, a
+low-confidence finding, two findings that disagree, a dependent question mixed
+with an independent one, a fan-out where one call fails, requests that need no
+sub-agent, and the wrong sub-agent to call (a change agent on a read-only
+question). Kubernetes adds an audit with a decoy flag; Coding adds the review
+loop (blocker, nits only, reviewer down, no third round, no review for a
+trivial change) and Scout on a repository only it can read.
+
+Rules for these files:
+
+- No host, cluster, file, service, library or scripted fact in common with the
+  validation and held-out files, and no calendar date in a scripted reply.
+- French prompts (`*-fr`) have fact patterns that accept a French answer.
+- `*-http-*` tasks script `"status": 5xx`. omnis tries a model call three
+  times, so one leader call is logged three times: the failing rule has
+  `times: 3` where a later call must succeed, and these tasks bound calls at 9
+  (three leader calls) and never gate on repeats.
+- Every Kubernetes task gates `k8s_editor` and `k8s_cleaner` at 0 calls; no
+  prompt asks for a cluster change.
+- The Coding review tasks write new files in the sandbox copy (`chunk.go`,
+  `clamp.go`, `slugify.go`, `dedupe.go`, `version.go`).
+- Not yet run against a model: expect a few gates to need adjusting after the
+  first baseline (read the failing records before trusting a score).
+
 ## Limits
 
 - A scripted source must be one the sub-agent could plausibly reach: asked about
