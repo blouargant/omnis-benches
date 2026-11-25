@@ -20,11 +20,13 @@ _PATH = re.compile(r"(?<![\w:/.])~?/(?:[\w.\-]+/)*[\w.\-]+")
 _HOST = re.compile(r"\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b", re.I)
 _NUMBER = re.compile(r"\b\d{4,}\b")
 _NAME = re.compile(r"\b[A-ZÀ-Þ]\w+")
-_SENTENCE_START = re.compile(r"(?:^|[.!?:;\n]\s*|^\s*[-*•]\s*)$")
+_SENTENCE_START = re.compile(r"(?:^|[.!?:;\n|#*>•(\"«“-]\s*)$")
 
 
-def _tokens(source):
-    """What must not survive in a scenario: e-mails, paths, hosts, long numbers, names."""
+def _tokens(source, private_only=False):
+    """What must not survive in a scenario: e-mails, paths, hosts, long numbers,
+    names. private_only keeps e-mails and paths alone (for tool results, whose
+    capitalised words are mostly public web text)."""
     found, text = set(), source
 
     def take(rx, keep=lambda s: True):
@@ -37,13 +39,20 @@ def _tokens(source):
 
     take(_EMAIL)
     take(_PATH, lambda s: len(s) > 2 and re.search(r"[A-Za-z]", s))
+    if private_only:
+        return found
     take(_HOST)
+    lower = set(re.findall(r"\b[a-zà-ÿ][\w]+", text))
     for m in _NUMBER.finditer(text):
         if not (len(m.group(0)) == 4 and 1900 <= int(m.group(0)) <= 2099):
             found.add(m.group(0))
     for m in _NAME.finditer(text):
-        if not _SENTENCE_START.search(text[:m.start()][-4:]) and m.start() != 0:
-            found.add(m.group(0))
+        word = m.group(0)
+        if m.start() == 0 or _SENTENCE_START.search(text[:m.start()][-4:]):
+            continue
+        if word.isupper() or word.lower() in lower:  # emphasis, or a common word with a capital
+            continue
+        found.add(word)
     return found
 
 
@@ -56,12 +65,14 @@ def _draft_text(draft):
     return "\n".join(str(p) for p in parts)
 
 
-def leaks(source_text, draft, allowed=()):
-    """Tokens of the source still present in the draft, sorted."""
+def leaks(source_text, draft, allowed=(), trace=""):
+    """Tokens of the source still present in the draft, sorted. source_text is
+    what the user typed (names, hosts, figures, paths, addresses are looked
+    for); trace is the reply and the tool results (paths and addresses only)."""
     ok = ALLOWED | {a.lower() for a in allowed}
     text = _draft_text(draft)
     out = []
-    for tok in _tokens(source_text or ""):
+    for tok in _tokens(source_text or "") | _tokens(trace or "", private_only=True):
         if tok.lower() in ok:
             continue
         if re.search(r"(?<![\w])%s(?![\w])" % re.escape(tok), text, re.I):
@@ -70,8 +81,14 @@ def leaks(source_text, draft, allowed=()):
 
 
 def source_text(turn):
-    return "\n".join([turn.get("user_text", ""), turn.get("reply", ""), turn.get("outline", ""),
-                      turn.get("next_user_text", "")] + list(turn.get("earlier_user_texts") or []))
+    """What the user typed in and around the turn."""
+    return "\n".join([turn.get("user_text", ""), turn.get("next_user_text", "")]
+                     + list(turn.get("earlier_user_texts") or []))
+
+
+def trace_text(turn):
+    """What the agent wrote and read during the turn."""
+    return "\n".join([turn.get("reply", ""), turn.get("outline", "")])
 
 
 DRAFT_SYSTEM = """You write one test scenario for an AI agent from a recorded turn of a real session.
@@ -151,14 +168,15 @@ def run_draft(cards, verdicts, turns, model, call=llm.call):
     return drafts, sources, errors
 
 
-def accept(drafts, texts, ids, allowed=()):
-    """The drafts named by ids, if none leaks. texts: scenario id -> source text."""
+def accept(drafts, texts, ids, allowed=(), traces=None):
+    """The drafts named by ids, if none leaks. texts: scenario id -> what the
+    user typed; traces: scenario id -> reply and tool results."""
     by_id = {d["id"]: d for d in drafts}
     out = []
     for sid in ids:
         if sid not in by_id:
             raise ValueError("no draft named %s" % sid)
-        found = leaks(texts.get(sid, ""), by_id[sid], allowed)
+        found = leaks(texts.get(sid, ""), by_id[sid], allowed, (traces or {}).get(sid, ""))
         if found:
             raise ValueError("%s still contains session text: %s" % (sid, ", ".join(found)))
         out.append(by_id[sid])

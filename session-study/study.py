@@ -163,9 +163,10 @@ def cmd_check(a):
     allowed = sorted(set(load_json(allowed_path, [])) | {x.strip() for x in a.allow.split(",") if x.strip()})
     save_json(allowed_path, allowed)
     texts = {sid: scenarios.source_text(turns[tid]) for sid, tid in sources.items() if tid in turns}
+    traces = {sid: scenarios.trace_text(turns[tid]) for sid, tid in sources.items() if tid in turns}
     dirty = 0
     for d in drafts:
-        found = scenarios.leaks(texts.get(d["id"], ""), d, allowed)
+        found = scenarios.leaks(texts.get(d["id"], ""), d, allowed, traces.get(d["id"], ""))
         dirty += bool(found)
         print("%-6s %s" % (d["id"], "LEAKS: " + ", ".join(found) if found else "clean"))
     if allowed:
@@ -173,7 +174,7 @@ def cmd_check(a):
     if a.accept:
         ids = [x.strip() for x in a.accept.split(",") if x.strip()]
         try:
-            kept = scenarios.accept(drafts, texts, ids, allowed)
+            kept = scenarios.accept(drafts, texts, ids, allowed, traces)
         except ValueError as e:
             sys.exit("not accepted: %s" % e)
         current = {t["id"]: t for t in load_json(a.tasks, [])}

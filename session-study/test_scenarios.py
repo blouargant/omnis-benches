@@ -40,6 +40,23 @@ class LeaksTest(unittest.TestCase):
         self.assertEqual(scenarios.leaks(SRC, draft("Q", rubric={"pass": ["mentions 48000"], "failure": ""})), ["48000"])
         self.assertEqual(scenarios.leaks(SRC, {"id": "x", "prompts": ["one", "about Corp"], "rubric": {}}), ["Corp"])
 
+    def test_names_come_from_what_the_user_typed_not_from_tool_results(self):
+        # a web page read during the turn is public: its capitalised words are not session secrets
+        turn = {"user_text": "Compare les offres pour Dupont", "earlier_user_texts": ["Bonjour"],
+                "next_user_text": "", "reply": "Selon Eurostat, la France est devant.",
+                "outline": "WebFetch(u) -> Insee Classement 48211 /home/bob/secret.md bob@acme.example"}
+        d = draft("Classement de la France selon Eurostat et Insee, 48211, pour Dupont, voir /home/bob/secret.md")
+        self.assertEqual(scenarios.leaks(scenarios.source_text(turn), d, trace=scenarios.trace_text(turn)),
+                         ["/home/bob/secret.md", "Dupont"])
+
+    def test_a_word_also_written_in_lower_case_is_not_a_name(self):
+        src = "Quel Radiateur choisir ? Mon radiateur est vieux. Contacte Dupont."
+        self.assertEqual(scenarios.leaks(src, draft("Un Radiateur pour Dupont")), ["Dupont"])
+
+    def test_headings_table_cells_and_capitals_only_words_are_not_names(self):
+        src = "# Plan\n| Prix | Verdict |\n- Solution retenue\nRECHERCHE EXHAUSTIVE demandée par Martin"
+        self.assertEqual(scenarios.leaks(src, draft("Le Plan, le Prix, la Solution, une RECHERCHE pour Martin")), ["Martin"])
+
     def test_no_whole_word_no_leak(self):
         self.assertEqual(scenarios.leaks("Ask Ann about it", draft("Announce the result")), [])
 
