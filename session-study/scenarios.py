@@ -127,13 +127,16 @@ def parse_draft(text, scenario_id, squad):
 def run_draft(cards, verdicts, turns, model, call=llm.call):
     """Scenarios for every card marked yes, then two controls from cards marked
     no (same squad as the failures first). Returns (drafts, sources, errors)."""
+    errors = ["card %s: its session is no longer in turns.jsonl" % c["card"]
+              for c in cards if c["turn_id"] not in turns and c["card"] in verdicts]
+    cards = [c for c in cards if c["turn_id"] in turns]
     yes = [c for c in cards if verdicts.get(c["card"], {}).get("failure") == "yes"]
     no = [c for c in cards if verdicts.get(c["card"], {}).get("failure") == "no"]
     squads = {turns[c["turn_id"]].get("squad") for c in yes}
     no.sort(key=lambda c: turns[c["turn_id"]].get("squad") not in squads)
     plan = [("ss-%d" % (i + 1), c) for i, c in enumerate(yes)]
     plan += [("ss-c%d" % (i + 1), c) for i, c in enumerate(no[:2])]
-    drafts, sources, errors = [], {}, []
+    drafts, sources = [], {}
     for sid, card in plan:
         turn = turns[card["turn_id"]]
         v = verdicts[card["card"]]

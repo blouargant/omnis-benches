@@ -99,6 +99,14 @@ class DraftTest(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual(len(asked), 4)
 
+    def test_draft_ignores_a_card_whose_session_was_deleted(self):
+        cards = [{"card": "c01", "turn_id": "gone#1", "why": "signal"}]
+        verdicts = {"c01": {"failure": "yes", "kind": "", "note": ""}}
+        drafts, sources, errors = scenarios.run_draft(cards, verdicts, {}, "m", call=lambda *a, **k: (REPLY, {}))
+        self.assertEqual((drafts, sources), ([], {}))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("c01", errors[0])
+
     def test_draft_reports_a_bad_reply_and_goes_on(self):
         turns = {"s#0": {"turn_id": "s#0", "squad": "k", "user_text": "q", "reply": "", "outline": ""},
                  "s#1": {"turn_id": "s#1", "squad": "k", "user_text": "q", "reply": "", "outline": ""}}

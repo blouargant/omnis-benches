@@ -127,12 +127,15 @@ def cmd_review(a):
     else:
         cards = review.pick(turns, judged)
     by_id = {t["turn_id"]: t for t in turns}
+    gone = [c["card"] for c in cards if c["turn_id"] not in by_id]
+    if gone:
+        print("card(s) whose session is no longer scanned, left out of review.md: %s" % ", ".join(gone))
     save_json(cards_path, cards)
     intro = ("# Turns to review\n\nFor each card, say in `verdicts.json` whether the turn went wrong: "
              "`failure` = `yes`, `no` or `unsure`; `kind` = a few words naming what went wrong; "
              "`note` = anything useful (what you expected, a sign we do not record).\n\n")
     with open(os.path.join(a.out, "review.md"), "w", encoding="utf-8") as f:
-        f.write(intro + "\n".join(review.card_markdown(c["card"], by_id[c["turn_id"]]) for c in cards))
+        f.write(intro + "\n".join(review.card_markdown(c["card"], by_id[c["turn_id"]]) for c in cards if c["turn_id"] in by_id))
     if not os.path.exists(verdicts_path):
         save_json(verdicts_path, {c["card"]: {"failure": "", "kind": "", "note": ""} for c in cards})
     print("%d cards -> %s" % (len(cards), os.path.join(a.out, "review.md")))

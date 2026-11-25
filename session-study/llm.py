@@ -11,7 +11,7 @@ def call(model, system, user, timeout=300):
     base, key = os.environ.get("OPENAI_BASE_URL"), os.environ.get("OPENAI_API_KEY")
     if not base or not key:
         raise RuntimeError("OPENAI_BASE_URL and OPENAI_API_KEY must be set (set -a; . ./.env; set +a)")
-    body = {"model": model, "max_tokens": 4000,
+    body = {"model": model, "max_tokens": 8000,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
     req = urllib.request.Request(base.rstrip("/") + "/chat/completions", data=json.dumps(body).encode(),
                                  headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})

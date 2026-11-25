@@ -134,6 +134,20 @@ class VerdictsTest(unittest.TestCase):
         self.assertEqual(p["rows"]["judge"], {"flagged": 2, "checked": 2, "real": 1, "precision": 0.5})
         self.assertEqual((p["controls_checked"], p["controls_real"]), (1, 1))
 
+    def test_a_card_whose_session_was_deleted_is_ignored(self):
+        # the user deleted a session, then ran `scan` again: its card has no turn any more
+        t = turn(0, ["halted"])
+        cards = [{"card": "c01", "turn_id": "s#0", "why": "signal"}, {"card": "c02", "turn_id": "gone#3", "why": "signal"}]
+        verdicts = {"c01": {"failure": "yes"}, "c02": {"failure": "yes"}}
+        p = review.precision(cards, verdicts, {"s#0": t}, {})
+        self.assertEqual(p["rows"]["halted"], {"flagged": 1, "checked": 1, "real": 1, "precision": 1.0})
+        study.write_jsonl(os.path.join(self.out, "turns.jsonl"), [t])
+        study.save_json(os.path.join(self.out, "cards.json"), cards)
+        study.save_json(os.path.join(self.out, "verdicts.json"), verdicts)
+        study.main(["--out", self.out, "review"])
+        with open(os.path.join(self.out, "review.md")) as f:
+            self.assertEqual(f.read().count("\n## c"), 1)
+
     def test_precision_with_nothing_checked(self):
         t = turn(0, ["halted"])
         p = review.precision([{"card": "c01", "turn_id": "s#0", "why": "signal"}], {}, {"s#0": t}, {})

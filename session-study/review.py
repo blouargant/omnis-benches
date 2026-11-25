@@ -84,6 +84,7 @@ def _row(flagged_cards, flagged_total, verdicts):
 
 def precision(cards, verdicts, turns, judged):
     """Per signal and for the judge: how many flagged turns the reader confirmed."""
+    cards = [c for c in cards if c["turn_id"] in turns]  # a session deleted since the cards were picked
     rows = {}
     names = sorted({s for t in turns.values() for s in t.get("signals", [])})
     for name in names:

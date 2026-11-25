@@ -5,3 +5,4 @@ harbor/**/__pycache__/
 .superpowers/
 gepa/out/
 session-study/out/
+session-study/__pycache__/
