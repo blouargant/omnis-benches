@@ -1,0 +1,99 @@
+[
+ {
+  "id": "ss-1",
+  "squad": "knowledge",
+  "kind": "web",
+  "prompt": "Je cherche un convecteur ou panneau rayonnant électrique programmable dont la sonde de température peut être déportée, par exemple posée sur une table de nuit pour réguler le chauffage selon la température près du lit. Que me conseillez-vous ?",
+  "rubric": {
+   "pass": [
+    "Répond directement avec un verdict clair : existe-t-il ou non un radiateur avec sonde déportée native, et quelle solution réaliste (fil pilote + récepteur/boîtier d'ambiance radio, ou sonde Zigbee + domotique) est proposée",
+    "Cite au moins deux produits ou montages concrets avec leur rôle (par ex. récepteur fil pilote + boîtier radio d'ambiance) et signale ce qui n'a pas été vérifié, comme les prix",
+    "Mentionne en quelques lignes la question de placement de la sonde (hauteur, éloignement de la source de chaleur) sans digresser",
+    "Reste proportionné : une seule vague de recherche d'environ 15 à 20 appels d'outils, sans skill de recherche approfondie, ni critique, ni sous-agents multiples",
+    "La réponse commence par la conclusion utile et non par un récit du processus de recherche"
+   ],
+   "failure": "Déploie une recherche exhaustive disproportionnée (skill deep-research, plusieurs vagues de sous-agents web, un critique, près de 300 appels d'outils, dérive vers des chauffages d'appoint portables) et ouvre la réponse par une narration du processus au lieu de la recommandation."
+  }
+ },
+ {
+  "id": "ss-2",
+  "squad": "knowledge",
+  "kind": "web",
+  "prompts": [
+   "Je cherche un modèle LLM open-weight à héberger dans mon entreprise pour répondre aux questions de nos collaborateurs, environ 850 personnes. On me demande aussi d'estimer les coûts matériels (GPU, serveurs, etc.).",
+   "Je pensais à un déploiement hybride : des RTX Pro 6000 pour un modèle généraliste de taille moyenne (type Qwen 27B ou un Mistral), et un nœud de B200 pour un modèle plus gros réservé aux tâches de codage et agentiques, avec de la quantization. Il y aura aussi des charges lourdes : analyse de sécurité récurrente de dépôts Git, analyse de cahiers des charges, petites tâches de codage.",
+   "Et si on se limite aux tâches de codage, quel serait le meilleur choix de modèle ouvert, quel que soit le matériel nécessaire ? Je veux une recommandation que je puisse défendre devant ma direction."
+  ],
+  "rubric": {
+   "pass": [
+    "La recommandation s'appuie sur au moins trois benchmarks ou classements de codage distincts (par exemple SWE-bench Pro, Terminal-Bench, LiveCodeBench, FrontierCode, indice de codage d'Artificial Analysis), chacun cité avec une source ou un lien.",
+    "La réponse signale les endroits où les benchmarks se contredisent, par exemple un modèle devant sur les tâches de terminal et un autre devant sur les corrections de dépôts, et explique comment elle arbitre.",
+    "Le verdict est nuancé par le type de tâche (correction de dépôt, agentique long, codage simple) au lieu de désigner un gagnant unique sur la foi d'une seule mesure.",
+    "La réponse distingue les scores indépendants des scores déclarés par les éditeurs, et vérifie la licence ainsi que la disponibilité réelle des poids du ou des modèles recommandés."
+   ],
+   "failure": "Le verdict « meilleur modèle ouvert pour le codage » repose surtout sur un seul benchmark ou une seule source (FrontierCode), alors que le plan prévoyait plusieurs benchmarks (SWE-bench Pro, Vals, Terminal-Bench, etc.) qui n'ont pas été croisés avant de conclure."
+  }
+ },
+ {
+  "id": "ss-3",
+  "squad": "system",
+  "kind": "web",
+  "rubric": {
+   "pass": [
+    "La réponse compare les deux modèles sur plusieurs axes (benchmarks de codage et de raisonnement, prix API, contexte, licence ou hébergement) avec un tableau ou une synthèse claire",
+    "Chaque chiffre est rattaché à une source nommée ou à un lien, et la réponse distingue les scores déclarés par l'éditeur des mesures indépendantes",
+    "La réponse signale ce qui n'a pas pu être vérifié, par exemple des versions de benchmarks différentes ou des pages illisibles, et indique un niveau de confiance",
+    "La recherche passe par les outils web de recherche et de lecture de pages (ou la demande est rendue au routeur pour une équipe qui les a), sans enchaîner des dizaines de curl|grep sur des pages JavaScript"
+   ],
+   "failure": "La recherche web est déléguée à un sous-agent d'investigation qui enchaîne des dizaines d'appels curl|grep sur des pages rendues en JavaScript (dont un appel à une API avec la clé locale) et renvoie un brief confus, que l'agent principal écarte ensuite, au lieu d'utiliser directement les outils de recherche et de lecture web en une dizaine d'appels."
+  },
+  "prompt": "comment se compare Claude Sonnet 4.5 à Mistral Large 3 ?"
+ },
+ {
+  "id": "ss-4",
+  "squad": "knowledge",
+  "kind": "web",
+  "prompt": "Pouvez-vous comparer les tarifs GPU à l'heure (H100, A100, L40S) des hébergeurs français OVHcloud, Scaleway et Outscale ?",
+  "rubric": {
+   "pass": [
+    "Récupère la page de tarifs de chaque fournisseur principal (OVHcloud, Scaleway, Outscale, etc.) une seule fois ou deux au plus, sans multiplier les variantes d'URL.",
+    "Cesse de relancer une recherche web qui renvoie la même erreur après deux ou trois tentatives et passe aux pages de tarifs directes.",
+    "Indique clairement dans la réponse les données manquantes (par exemple prix Outscale non publiés ou prix OVHcloud partiels) au lieu de les combler par des suppositions.",
+    "Présente un tableau comparatif avec les prix réellement trouvés, la devise et l'unité de facturation, et la source de chaque prix.",
+    "Limite le nombre total d'appels d'outils à un ordre de grandeur raisonnable (quelques dizaines au plus) pour cette comparaison."
+   ],
+   "failure": "L'agent enchaîne des centaines d'appels d'outils : recherches qui échouent en boucle avec la même erreur HTTP 400, URL d'API ou de pages devinées qui renvoient 404, délégations qui reviennent vides et sont relancées, et la réponse finale reste incomplète (prix OVHcloud partiels, aucun prix Outscale)."
+  }
+ },
+ {
+  "id": "ss-c1",
+  "squad": "knowledge",
+  "kind": "web",
+  "prompt": "c'est quoi LiteLLM de BerriAI ?",
+  "rubric": {
+   "pass": [
+    "La réponse identifie correctement le produit et explique clairement ce qu'il est et ce qu'il fait.",
+    "La réponse s'appuie sur des sources web citées (documentation officielle, dépôt, blog) avec des liens.",
+    "La réponse signale les informations non vérifiées ou incertaines au lieu de les présenter comme sûres.",
+    "La réponse est rédigée en français et reste concise."
+   ],
+   "failure": ""
+  }
+ },
+ {
+  "id": "ss-c2",
+  "squad": "knowledge",
+  "kind": "web",
+  "prompt": "Quel est le classement des pays ayant le plus haut niveau de pression fiscale ? (cotisations sociales comprises)",
+  "rubric": {
+   "pass": [
+    "Donne un classement chiffré des pays les plus prélevés, en % du PIB, avec le Danemark, la France et l'Autriche (ou la Belgique) en tête, pour l'année la plus récente disponible",
+    "Précise que les cotisations sociales sont incluses et indique l'année de référence ainsi que la source (OCDE et/ou Eurostat/Insee) avec un lien",
+    "Signale que les classements OCDE et Eurostat peuvent différer et explique brièvement pourquoi (méthode, pays couverts)",
+    "Indique honnêtement les limites de la vérification (par exemple page inaccessible ou classement complet non lu) au lieu d'affirmer un classement exhaustif sans l'avoir vérifié",
+    "Répond en français, de façon concise, avec un tableau lisible"
+   ],
+   "failure": ""
+  }
+ }
+]
