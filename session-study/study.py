@@ -15,6 +15,7 @@ sys.path.insert(0, HERE)
 
 import judge
 import review
+import scenarios
 import sessions
 import signals
 
@@ -60,6 +61,7 @@ def scan_turns(sess):
                 "signals": signals.for_turn(t, nxt, cut[s["squad"]]),
                 "user_text": t.get("user_text", ""), "reply": t.get("assistant_text", ""),
                 "next_user_text": nxt, "outline": sessions.outline(t),
+                "earlier_user_texts": [p.get("user_text", "") for p in s["turns"][max(0, i - 5):i]],
             })
     return rows
 
@@ -132,9 +134,54 @@ def cmd_review(a):
     print("%d cards -> %s" % (len(cards), os.path.join(a.out, "review.md")))
 
 
+def cmd_draft(a):
+    cards = load_json(os.path.join(a.out, "cards.json"), [])
+    verdicts, open_ = review.read_verdicts(os.path.join(a.out, "verdicts.json"))
+    turns = {t["turn_id"]: t for t in read_jsonl(os.path.join(a.out, "turns.jsonl"))}
+    if open_:
+        print("%d card(s) still open or unsure, left out: %s" % (len(open_), ", ".join(open_)))
+    drafts, sources, errors = scenarios.run_draft(cards, verdicts, turns, a.model)
+    save_json(os.path.join(a.out, "scenarios-draft.json"), drafts)
+    save_json(os.path.join(a.out, "sources.json"), sources)
+    for e in errors:
+        print("error: " + e)
+    print("%d draft(s) -> %s" % (len(drafts), os.path.join(a.out, "scenarios-draft.json")))
+
+
+def cmd_check(a):
+    drafts = load_json(os.path.join(a.out, "scenarios-draft.json"), [])
+    sources = load_json(os.path.join(a.out, "sources.json"), {})
+    turns = {t["turn_id"]: t for t in read_jsonl(os.path.join(a.out, "turns.jsonl"))}
+    allowed_path = os.path.join(a.out, "allowed.json")
+    allowed = sorted(set(load_json(allowed_path, [])) | {x.strip() for x in a.allow.split(",") if x.strip()})
+    save_json(allowed_path, allowed)
+    texts = {sid: scenarios.source_text(turns[tid]) for sid, tid in sources.items() if tid in turns}
+    dirty = 0
+    for d in drafts:
+        found = scenarios.leaks(texts.get(d["id"], ""), d, allowed)
+        dirty += bool(found)
+        print("%-6s %s" % (d["id"], "LEAKS: " + ", ".join(found) if found else "clean"))
+    if allowed:
+        print("allowed by hand: " + ", ".join(allowed))
+    if a.accept:
+        ids = [x.strip() for x in a.accept.split(",") if x.strip()]
+        try:
+            kept = scenarios.accept(drafts, texts, ids, allowed)
+        except ValueError as e:
+            sys.exit("not accepted: %s" % e)
+        current = {t["id"]: t for t in load_json(a.tasks, [])}
+        current.update({d["id"]: d for d in kept})
+        save_json(a.tasks, [current[k] for k in sorted(current)])
+        print("%d scenario(s) in %s" % (len(current), a.tasks))
+        return 0
+    return 1 if dirty else 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--out", default=os.path.join(HERE, "out"), help="working directory (session text; git-ignored)")
+    ap.add_argument("--tasks", default=os.path.join(HERE, "tasks-sessions.json"),
+                    help="the accepted scenarios (the one committed file with scenario text)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("scan", help="read the session files and compute per-turn signals")
     p.add_argument("--logs", default=default_logs())
@@ -144,6 +191,13 @@ def main(argv=None):
     p.set_defaults(fn=cmd_judge)
     p = sub.add_parser("review", help="write the cards to read and the verdict file to fill")
     p.set_defaults(fn=cmd_review)
+    p = sub.add_parser("draft", help="draft a scenario per confirmed failure, plus two controls")
+    p.add_argument("--model", default="claude-sonnet-5-5")
+    p.set_defaults(fn=cmd_draft)
+    p = sub.add_parser("check", help="list session text left in the drafts; --accept copies clean ones to --tasks")
+    p.add_argument("--allow", default="", help="comma list of tokens a scenario may keep (public product names)")
+    p.add_argument("--accept", default="", help="comma list of draft ids to accept")
+    p.set_defaults(fn=cmd_check)
     a = ap.parse_args(argv)
     return a.fn(a)
 
