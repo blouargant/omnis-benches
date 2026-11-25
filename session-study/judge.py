@@ -93,3 +93,32 @@ def run_items(items, out_path, key, model, ask, call=llm.call):
 def run_judge(turns, out_path, model, call=llm.call):
     return run_items(turns, out_path, "turn_id", model,
                      lambda t: turn_prompt(t) + (parse_turn,), call=call)
+
+
+RUN_SYSTEM = """You grade one run of an AI agent on a test scenario. You get the request, a rubric, the agent's answer, and the run's metrics.
+- "passed": true when the answer satisfies every statement of the rubric's pass list.
+- "failure_seen": true only when the rubric's specific failure happened in this run, as shown by the answer or the metrics. Any other shortcoming is not that failure: answer false. When the rubric names no failure, answer false.
+Judge what is shown; do not fact-check beyond the rubric.
+""" + llm.FENCE_RULE + """
+Reply with JSON only: {"passed": true|false, "failure_seen": true|false, "reason": "<one sentence>"}"""
+
+
+def run_prompt(scenario, record):
+    rubric = scenario.get("rubric") or {}
+    prompts = scenario.get("prompts") or [scenario.get("prompt", "")]
+    metrics = "tool calls by the leader: %s; by sub-agents: %s; delegations: %s; pages fetched: %s; cost: $%s; seconds: %s" % (
+        json.dumps(record.get("leader_tools") or {}), json.dumps(record.get("subagent_tools") or {}),
+        json.dumps(record.get("delegations") or {}), record.get("fetches", "?"),
+        record.get("total_cost_usd", "?"), round((record.get("wall_ms") or 0) / 1000))
+    user = "REQUEST\n%s\n\nRUBRIC — pass when:\n%s\n\nRUBRIC — the specific failure to look for:\n%s\n\nMETRICS\n%s\n\nANSWER\n%s" % (
+        "\n---\n".join(prompts), "\n".join("- " + p for p in rubric.get("pass") or []),
+        rubric.get("failure") or "(none: control scenario)", metrics,
+        llm.fence((record.get("answer") or "")[:30000]))
+    return RUN_SYSTEM, user
+
+
+def parse_run(text):
+    d = llm.extract_json(text)
+    if not isinstance(d.get("passed"), bool) or not isinstance(d.get("failure_seen"), bool):
+        raise ValueError("passed and failure_seen must be true or false")
+    return {"passed": d["passed"], "failure_seen": d["failure_seen"], "reason": str(d.get("reason") or "")}

@@ -14,6 +14,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import judge
+import llm
+import replay
 import review
 import scenarios
 import sessions
@@ -177,6 +179,29 @@ def cmd_check(a):
     return 1 if dirty else 0
 
 
+def cmd_replay(a):
+    tasks = load_json(a.tasks, [])
+    if not tasks:
+        sys.exit("no accepted scenario in %s: run `check --accept` first" % a.tasks)
+    tasks_path = replay.materialise(tasks, a.out)
+
+    def judge_run(scenario, record):
+        system, user = judge.run_prompt(scenario, record)
+        text, _ = llm.call(a.judge_model, system, user)
+        return judge.parse_run(text)
+
+    s = replay.run_replay(tasks, a.out, a.repeat, a.ceiling,
+                          replay.bench_runner(a.server, a.token, tasks_path, a.deadline), judge_run)
+    print("runs started: %d  spent: $%.2f of $%.2f%s" % (
+        s["runs"], replay.spent(os.path.join(a.out, "ledger.jsonl")), a.ceiling,
+        "  (stopped at the ceiling)" if s["stopped"] == "ceiling" else ""))
+    judged = replay.judged_by_scenario(a.out)
+    for t in tasks:
+        o = replay.outcome(t, judged.get(t["id"], []))
+        print("%-6s %-18s runs %d  invalid %d  passed %d  failure seen %d" % (
+            t["id"], o["status"], o["runs"], o["invalid"], o["passed"], o["failure_seen"]))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--out", default=os.path.join(HERE, "out"), help="working directory (session text; git-ignored)")
@@ -198,6 +223,14 @@ def main(argv=None):
     p.add_argument("--allow", default="", help="comma list of tokens a scenario may keep (public product names)")
     p.add_argument("--accept", default="", help="comma list of draft ids to accept")
     p.set_defaults(fn=cmd_check)
+    p = sub.add_parser("replay", help="run the accepted scenarios with squad-bench and judge each run")
+    p.add_argument("--server", required=True)
+    p.add_argument("--token", default=os.environ.get("OMNIS_SERVER_TOKEN", ""))
+    p.add_argument("--repeat", type=int, default=5)
+    p.add_argument("--ceiling", type=float, default=30.0, help="stop starting runs at this many dollars")
+    p.add_argument("--deadline", type=int, default=900, help="per-turn cap passed to bench.py (s)")
+    p.add_argument("--judge-model", default="gpt-5.5", help="another family than the model that answered")
+    p.set_defaults(fn=cmd_replay)
     a = ap.parse_args(argv)
     return a.fn(a)
 
