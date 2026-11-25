@@ -13,6 +13,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+import judge
 import sessions
 import signals
 
@@ -74,6 +75,19 @@ def cmd_scan(a):
     print("flagged turns: %d  by signal: %s" % (sum(1 for r in rows if r["signals"]), dict(per)))
 
 
+def cmd_judge(a):
+    turns = read_jsonl(os.path.join(a.out, "turns.jsonl"))
+    if not turns:
+        sys.exit("no out/turns.jsonl: run `scan` first")
+    path = os.path.join(a.out, "judged.jsonl")
+    s = judge.run_judge(turns, path, a.model)
+    print("judged: %(judged)d  errors: %(errors)d  already done: %(skipped)d" % s)
+    rows = [r for r in read_jsonl(path) if "error" not in r]
+    print("verdicts: %s" % dict(collections.Counter(r["verdict"] for r in rows)))
+    if s["errors"]:
+        print("re-run `judge` to retry the %d error(s)" % s["errors"])
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--out", default=os.path.join(HERE, "out"), help="working directory (session text; git-ignored)")
@@ -81,6 +95,9 @@ def main(argv=None):
     p = sub.add_parser("scan", help="read the session files and compute per-turn signals")
     p.add_argument("--logs", default=default_logs())
     p.set_defaults(fn=cmd_scan)
+    p = sub.add_parser("judge", help="one model verdict per scanned turn")
+    p.add_argument("--model", default="claude-sonnet-5-5", help="gateway model id (default: the one behind `premium`)")
+    p.set_defaults(fn=cmd_judge)
     a = ap.parse_args(argv)
     return a.fn(a)
 
