@@ -50,7 +50,7 @@ def materialise(scenarios, out_dir):
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, "tasks-replay.json")
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(tasks, f, ensure_ascii=False, indent=1)
+        json.dump({"tasks": tasks}, f, ensure_ascii=False, indent=1)
     return path
 
 

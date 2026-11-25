@@ -36,7 +36,9 @@ class MaterialiseTest(unittest.TestCase):
                                    {"id": "ss-2", "squad": "system", "prompts": ["one", "two"],
                                     "rubric": {"pass": ["a"], "failure": "f"}}], self.out)
         with open(path) as f:
-            tasks = json.load(f)
+            doc = json.load(f)
+        self.assertEqual(list(doc), ["tasks"])  # the shape squad-bench/bench.py reads
+        tasks = doc["tasks"]
         task = tasks[0]
         self.assertNotIn("rubric", task)
         self.assertNotIn("files", task)
