@@ -42,6 +42,7 @@ Keep the "Gotchas" section current — it encodes hard-won facts.
 | `k8s-ai-bench/` | Adapter for the gke-labs **k8s-ai-bench** suite (Pass@k on real k8s tasks against ephemeral clusters), so omnis is scored comparably to other agents. | `omnis-agent` |
 | `harbor/` | **Harbor** adapter: omnis as a coding *harness* on Terminal-Bench 2.1 + DeepSWE v1.1, Harness Leaderboard method (pinned task commits + subsets, one model for every agent, k attempts). Variants `full` (shipped Coding squad) / `lean` (`coder` alone, `fs`+`tests`). | `run.sh` |
 | `gepa/` | **Prompt evolution** with GEPA: evolves an agent's instruction / `turn_reminder` / skills against the scripted squad-bench suites, guarded (protected rules, no scenario names, length cap), then decides on held-out tasks on every model and writes a report + a patch to apply by hand. | `optimize.py` |
+| `session-study/` | **One-off study**: scenarios built from real sessions that went wrong (signals + LLM judge, confirmed by a person, rewritten without session text), replayed through `bench.py`, with a verdict from a rule fixed in advance. `out/` holds session text, never committed. | `study.py` |
 
 `model-probe` tests a *raw endpoint*; `squad-bench` tests *squad behaviour* once
 that endpoint is wired into omnis. Sister tools.
@@ -273,6 +274,24 @@ then scoring with the task's `verify.sh` on an ephemeral kind cluster.
   **kind + docker + go** (not auto-installed).
 - Unit tests: `python3 -m unittest discover -s k8s-ai-bench` (stdlib only;
   covers `omnis-agent`'s pure logic only — no live cluster/server involved).
+
+## session-study (scenarios from real sessions)
+
+`session-study/study.py` answers one question: do scenarios built from real
+omnis sessions find defects our hand-written tasks miss? Steps `scan` → `judge`
+→ `review` (a person fills `out/verdicts.json`) → `draft` → `check` → `replay`
+(through `squad-bench/bench.py`, unchanged) → `report`. See
+`session-study/README.md`; design in the omnis repo,
+`docs/superpowers/specs/2026-11-25-session-scenarios-study-design.md`.
+
+- **`session-study/out/` holds session text: git-ignored, never committed.** The
+  one committed file with scenario text is `session-study/tasks-sessions.json`;
+  a draft goes in only after it was read and passed `check` (no name, path,
+  host or figure of its source session).
+- The verdict rule is fixed in `report.py` (`decide`): go at 3 distinct
+  reproducing failures no suite covers, stop at 0, undecided at 1–2. Do not
+  change it after seeing numbers.
+- Unit tests: `python3 -m unittest discover -s session-study` (stdlib only, no network).
 
 ## Gotchas (hard-won)
 

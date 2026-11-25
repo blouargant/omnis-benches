@@ -16,6 +16,7 @@ sys.path.insert(0, HERE)
 import judge
 import llm
 import replay
+import report
 import review
 import scenarios
 import sessions
@@ -57,6 +58,7 @@ def scan_turns(sess):
             by_agent = collections.Counter(c.get("agent") or "root" for c, _ in sessions.walk(t["tools"]))
             rows.append({
                 "turn_id": "%s#%d" % (s["id"], i), "session": s["id"], "turn": i, "squad": s["squad"],
+                "at": t.get("at", ""),
                 "skills": [k["name"] for k in s["skills"] if k["turn"] <= i],
                 "calls": sum(by_agent.values()), "calls_by_agent": dict(by_agent),
                 "tokens": t.get("usage") or {},
@@ -202,6 +204,15 @@ def cmd_replay(a):
             t["id"], o["status"], o["runs"], o["invalid"], o["passed"], o["failure_seen"]))
 
 
+def cmd_report(a):
+    import datetime
+    date = a.date or datetime.date.today().isoformat()
+    path = os.path.join(HERE, "..", "reports", "session-scenarios-knowledge-%s.md" % date)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(report.build(a.out, a.tasks))
+    print("report -> %s" % os.path.normpath(path))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--out", default=os.path.join(HERE, "out"), help="working directory (session text; git-ignored)")
@@ -231,6 +242,9 @@ def main(argv=None):
     p.add_argument("--deadline", type=int, default=900, help="per-turn cap passed to bench.py (s)")
     p.add_argument("--judge-model", default="gpt-5.5", help="another family than the model that answered")
     p.set_defaults(fn=cmd_replay)
+    p = sub.add_parser("report", help="write the study report under reports/")
+    p.add_argument("--date", default="", help="YYYY-MM-DD (default: today)")
+    p.set_defaults(fn=cmd_report)
     a = ap.parse_args(argv)
     return a.fn(a)
 
